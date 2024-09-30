@@ -1,0 +1,12 @@
+go 1.23
+
+toolchain go1.23.1
+
+use (
+	./cmd/gpt-uptime
+	./cmd/moretests
+	./cmd/test
+	./cmd/uptime
+	./upcheck
+
+)
