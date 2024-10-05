@@ -20,6 +20,31 @@ import (
 
 const CONFIGFILE = "hosts.txt"
 
+var defaultTargets = []*upcheck.Target{
+	{
+		Name:     "Google DNS",
+		Host:     "8.8.8.8",
+		Port:     53,
+		Type:     0,
+		IsAlive:  false,
+		Since:    time.Now(),
+		Attempts: 0,
+		Failures: 0,
+		Errors:   make(map[string]int),
+	},
+	{
+		Name:     "Cloudflare DNS",
+		Host:     "1.1.1.1",
+		Port:     53,
+		Type:     0,
+		IsAlive:  false,
+		Since:    time.Now(),
+		Attempts: 0,
+		Failures: 0,
+		Errors:   make(map[string]int),
+	},
+}
+
 // host, port, err := upcheck.ParseHostPort(line)
 func parseHostPortType(line string) (string, int, error) {
 	defaultPort := 80
@@ -76,6 +101,7 @@ func isHostListening(host string, port int) (bool, error) {
 		}(conn)
 	}
 	if err != nil {
+		// todo: treat dns issues specially: lookup www.tom.org: no such host:14])
 		if isMemoryError(err) {
 			log.Debug().Msgf("memory error connecting to %s : %s", host, err)
 			printMemUsage()
@@ -185,6 +211,7 @@ func main() {
 		log.Info().Msgf("Netmask: %s", upcheck.IPMaskToString(thisNetmask))
 		log.Info().Msgf("Default Gateway: %s", thisGateway)
 	}
+
 	checkTargets := getTargetsFromFile(CONFIGFILE)
 	//registerSignals(checkAllTargets)
 	go showStatuses(checkTargets)
