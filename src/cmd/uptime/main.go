@@ -4,17 +4,17 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
-	"github.com/rs/zerolog/pkgerrors"
 	"net"
 	"os"
-	"os/signal"
 	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
+
+	"github.com/eiannone/keyboard"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
+	"github.com/rs/zerolog/pkgerrors"
 	"upcheck"
 )
 
@@ -45,7 +45,6 @@ var defaultTargets = []*upcheck.Target{
 	},
 }
 
-// host, port, err := upcheck.ParseHostPort(line)
 func parseHostPortType(line string) (string, int, error) {
 	defaultPort := 80
 	// Split the connection string into host and port
@@ -114,13 +113,15 @@ func isHostListening(host string, port int) (bool, error) {
 	return true, nil
 }
 
-func getTargetsFromFile(filename string) []*upcheck.Target {
+func loadTargetsFromFile(filename string) []*upcheck.Target {
 	var results []*upcheck.Target
 
 	// Open the file
 	file, err := os.Open(filename)
 	if err != nil {
-		log.Fatal().Err(err).Msgf("error opening %s", filename)
+		log.Warn().Err(err).Msgf("error opening %s", filename)
+		log.Info().Msg("uing defaults")
+		return defaultTargets
 	}
 	defer func(file *os.File) {
 		err := file.Close()
@@ -151,7 +152,7 @@ func getTargetsFromFile(filename string) []*upcheck.Target {
 				}
 				rec.Since = time.Now()
 				results = append(results, rec)
-				log.Info().Msgf("added %v", rec)
+				log.Debug().Msgf("added %v", rec)
 			}
 		}
 	}
@@ -160,27 +161,6 @@ func getTargetsFromFile(filename string) []*upcheck.Target {
 		log.Fatal().Err(err).Msgf("error reading %s", filename)
 	}
 	return results
-}
-
-func registerSignals(targets []*upcheck.Target) {
-	log.Info().Msg("registering signals")
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, os.Kill)
-
-	go func() {
-		sig := <-c
-		log.Info().Msgf("Received signal: %s", sig)
-		if sig == syscall.SIGINT {
-			log.Info().Msg("SIGINT caught")
-			upcheck.ShowStatuses(targets)
-		} else if sig == syscall.SIGKILL {
-			log.Info().Msg("SIGKILL caught")
-			upcheck.ShowStatuses(targets)
-			os.Exit(1)
-		} else {
-			log.Info().Msgf("Caught signal: %s", sig)
-		}
-	}()
 }
 
 func showStatuses(targets []*upcheck.Target) {
@@ -192,53 +172,80 @@ func showStatuses(targets []*upcheck.Target) {
 
 func main() {
 	initLogs()
-	baseIP := net.ParseIP("192.168.1.1")
-	baseMask := net.IPv4Mask(255, 255, 255, 0)
-	checkIP := net.ParseIP("1.1.1.1")
-
-	if upcheck.IsInSameSubnet(baseIP, baseMask, checkIP) {
-		fmt.Println("The IP is in the same subnet.")
-	} else {
-		fmt.Println("The IP is not in the same subnet.")
-	}
-
 	thisHost, thisNetmask, thisGateway, err := getNetworkInfo()
 
 	if err != nil {
 		log.Fatal().Err(err).Msg("Error getting network info")
 	} else {
-		log.Info().Msgf("Local IP: %s", thisHost)
-		log.Info().Msgf("Netmask: %s", upcheck.IPMaskToString(thisNetmask))
-		log.Info().Msgf("Default Gateway: %s", thisGateway)
+		fmt.Printf("Local IP: %s\n", thisHost)
+		fmt.Printf("Netmask: %s\n", upcheck.IPMaskToString(thisNetmask))
+		fmt.Printf("Default Gateway: %s\n", thisGateway)
 	}
 
-	checkTargets := getTargetsFromFile(CONFIGFILE)
-	//registerSignals(checkAllTargets)
-	go showStatuses(checkTargets)
-	//registerSignals(checkAllTargets)
+	checkTargets := loadTargetsFromFile(CONFIGFILE)
+	// go showStatuses(checkTargets)
+
+	// Initialize keyboard listener
+	if err := keyboard.Open(); err != nil {
+		log.Fatal().Err(err).Msg("Failed to open keyboard")
+	}
+
+	defer func() {
+		if err := keyboard.Close(); err != nil {
+			log.Fatal().Err(err).Msg("Failed to close keyboard")
+		}
+	}()
+	stopChan := make(chan struct{})
+	go func(stopChan chan struct{}) {
+		for {
+			select {
+			case <-stopChan:
+				log.Info().Msg("Stopping...")
+				return
+			default:
+				checkAllTargets(checkTargets)
+				time.Sleep(1 * time.Second)
+			}
+
+		}
+	}(stopChan)
 	for {
-		checkAllTargets(checkTargets)
-		time.Sleep(1 * time.Second)
+		handleKeys(checkTargets, stopChan)
 	}
 }
 
+func handleKeys(checkTargets []*upcheck.Target, stopChan chan struct{}) []*upcheck.Target {
+	// Check for key presses
+	if char, key, err := keyboard.GetKey(); err == nil {
+		if key == keyboard.KeyEsc || key == keyboard.KeyCtrlC {
+			fmt.Println("Exiting...")
+			os.Exit(0)
+		}
+		switch char {
+		case 's':
+			upcheck.ShowStatuses(checkTargets)
+			break
+		case 'r':
+			fmt.Println("Resetting all stats...")
+			upcheck.ResetAllStats(checkTargets)
+		default:
+			fmt.Printf("You pressed: %q\n", char)
+		}
+	}
+	return checkTargets
+}
+
 func checkAllTargets(targets []*upcheck.Target) {
-	// loop through all the targets
-	//  state changes matter. if a target goes from up to down, or down to up, log it. do the fields in the target struct
-	//  make sense? if not, change them.
-	// determine status:
-	//  if the local targets and gateway are available but the internet is not, then the isp is down.
-	//  if local targets are online but the gateway and internet are not, then the gateway is down
 	for _, target := range targets {
 		target.Attempts++
 		alive, err := isHostListening(target.Host, target.Port)
 		if err != nil {
 			target.Errors[err.Error()]++
-			//			log.Warn().Msgf("error connecting to %s:%d", target.Host, target.Port)
 		}
 		if alive {
 			if !target.IsAlive {
 				target.IsAlive = true
+				target.CurrentError = ""
 				log.Info().Msgf("target %v is back up - was down for %s", target, time.Now().Sub(target.Since).Round(time.Second).String())
 				target.Since = time.Now()
 			}
@@ -246,9 +253,10 @@ func checkAllTargets(targets []*upcheck.Target) {
 			log.Debug().Msgf("target %v is up", target)
 		} else {
 			target.Failures++
+			target.CurrentError = err.Error()
 			if target.IsAlive {
 				target.IsAlive = false
-				log.Info().Msgf("target %v is down - was up for %s", target, time.Now().Sub(target.Since).Round(time.Second).String())
+				log.Info().Msgf("target %v is down - was up for %s (%s)", target, time.Now().Sub(target.Since).Round(time.Second).String(), target.CurrentError)
 				target.Since = time.Now()
 			}
 			target.IsAlive = false
@@ -275,13 +283,13 @@ func initLogs() {
 	zerolog.ErrorStackMarshaler = pkgerrors.MarshalStack
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 
-	//if os.Getenv("CONSOLE") != "" || 1 == 1 {
+	// if os.Getenv("CONSOLE") != "" || 1 == 1 {
 	//	log.Info().Msg("logging to console")
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339})
 
-	//} else {
+	// } else {
 	//	log.Output(os.Stdout)
-	//}
+	// }
 
 	if os.Getenv("DEBUG") != "" {
 		zerolog.SetGlobalLevel(zerolog.TraceLevel)
