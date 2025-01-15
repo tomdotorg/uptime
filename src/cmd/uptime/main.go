@@ -24,6 +24,7 @@ var defaultTargets = []*upcheck.Target{
 	{
 		Name:     "Google DNS",
 		Host:     "8.8.8.8",
+		IP:       net.IP{8, 8, 8, 8},
 		Port:     53,
 		Type:     0,
 		IsAlive:  false,
@@ -35,6 +36,7 @@ var defaultTargets = []*upcheck.Target{
 	{
 		Name:     "Cloudflare DNS",
 		Host:     "1.1.1.1",
+		IP:       net.IP{1, 1, 1, 1},
 		Port:     53,
 		Type:     0,
 		IsAlive:  false,
@@ -45,24 +47,18 @@ var defaultTargets = []*upcheck.Target{
 	},
 }
 
-func parseHostPortType(line string) (string, int, error) {
+func parseHostPortType(line string) (string, net.IP, int, error) {
 	defaultPort := 80
-	// Split the connection string into host and port
-	// TODO grab the type after a comma at the end. default to external
-
-	commaIndex := strings.Index(line, ",")
-	if commaIndex != -1 {
-		line = line[:commaIndex]
-	}
+	var host net.IP
 	parts := strings.Split(line, ":")
-	host := parts[0]
 	// see if host is an IP address or a hostname
-	if net.ParseIP(host) == nil {
+	if net.ParseIP(parts[0]) == nil {
 		// not an IP address, so it must be a hostname
 		// resolve the hostname to an IP address
-		_, err := net.LookupIP(host)
-		if err != nil {
-			return host, -1, err
+		ips, err := net.LookupIP(parts[0])
+		host = net.ParseIP(parts[0])
+		if err != nil && len(ips) > 0 {
+			return parts[0], net.IP(ips[0]), -1, err
 		}
 	}
 	port := defaultPort
@@ -72,10 +68,10 @@ func parseHostPortType(line string) (string, int, error) {
 		var err error
 		port, err = strconv.Atoi(parts[1])
 		if err != nil || port <= 0 || port > 65535 {
-			return host, -1, err
+			return parts[0], host, -1, err
 		}
 	}
-	return host, port, nil
+	return parts[0], host, port, nil
 }
 
 func isMemoryError(err error) bool {
@@ -135,7 +131,7 @@ func loadTargetsFromFile(filename string) []*upcheck.Target {
 	for scanner.Scan() {
 		line := scanner.Text()
 		if !strings.HasPrefix(line, "#") {
-			host, port, err := parseHostPortType(line)
+			host, ip, port, err := parseHostPortType(line)
 			if err != nil {
 				log.Warn().Msgf("invalid line: %s - skipping", line)
 			} else {
@@ -143,6 +139,7 @@ func loadTargetsFromFile(filename string) []*upcheck.Target {
 				rec := &upcheck.Target{
 					Name:     line,
 					Host:     host,
+					IP:       ip,
 					Port:     port,
 					Attempts: 1,
 					Failures: 0,
@@ -240,6 +237,7 @@ func checkAllTargets(targets []*upcheck.Target) {
 		target.Attempts++
 		alive, err := isHostListening(target.Host, target.Port)
 		if err != nil {
+			target.CurrentError = err.Error()
 			target.Errors[err.Error()]++
 		}
 		if alive {
@@ -253,7 +251,6 @@ func checkAllTargets(targets []*upcheck.Target) {
 			log.Debug().Msgf("target %v is up", target)
 		} else {
 			target.Failures++
-			target.CurrentError = err.Error()
 			if target.IsAlive {
 				target.IsAlive = false
 				log.Info().Msgf("target %v is down - was up for %s (%s)", target, time.Now().Sub(target.Since).Round(time.Second).String(), target.CurrentError)

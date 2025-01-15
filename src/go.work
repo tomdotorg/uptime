@@ -7,5 +7,4 @@ use (
 	./cmd/test
 	./cmd/uptime
 	./upcheck
-
 )

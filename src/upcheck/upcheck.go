@@ -2,6 +2,7 @@ package upcheck
 
 import (
 	"fmt"
+	"net"
 	"time"
 )
 
@@ -9,6 +10,7 @@ type Target struct {
 	Name         string
 	Host         string
 	Port         int
+	IP           net.IP
 	Type         int
 	IsAlive      bool
 	Since        time.Time

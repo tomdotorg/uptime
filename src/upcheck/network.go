@@ -3,11 +3,12 @@ package upcheck
 import (
 	"bytes"
 	"fmt"
-	"github.com/rs/zerolog/log"
 	"net"
 	"os/exec"
 	"runtime"
 	"strings"
+
+	"github.com/rs/zerolog/log"
 )
 
 func GetLocalIP() (net.IP, error) {
@@ -88,14 +89,14 @@ func getDarwinGateway() (net.IP, error) {
 
 func getLinuxGateway() (net.IP, error) {
 	gw := net.IP{}
-	//tom@hanalei:~$ route -n
-	//Kernel IP routing table
-	//Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
-	//0.0.0.0         192.168.0.254   0.0.0.0         UG    0      0        0 enp6s0
-	//172.17.0.0      0.0.0.0         255.255.0.0     U     0      0        0 docker0
-	//172.18.0.0      0.0.0.0         255.255.0.0     U     0      0        0 br-0f2b158226c8
-	//192.168.0.0     0.0.0.0         255.255.255.0   U     0      0        0 enp6s0
-	//tom@hanalei:~$
+	// tom@hanalei:~$ route -n
+	// Kernel IP routing table
+	// Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
+	// 0.0.0.0         192.168.0.254   0.0.0.0         UG    0      0        0 enp6s0
+	// 172.17.0.0      0.0.0.0         255.255.0.0     U     0      0        0 docker0
+	// 172.18.0.0      0.0.0.0         255.255.0.0     U     0      0        0 br-0f2b158226c8
+	// 192.168.0.0     0.0.0.0         255.255.255.0   U     0      0        0 enp6s0
+	// tom@hanalei:~$
 	cmd := exec.Command("route", "-n")
 	var out bytes.Buffer
 	cmd.Stdout = &out
