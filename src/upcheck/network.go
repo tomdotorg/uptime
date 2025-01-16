@@ -11,6 +11,31 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+type NetworkInfo struct {
+	Localnet net.IP
+	Mask     net.IPMask
+	GW       net.IP
+}
+
+func GetNetworkInfo() (netInfo NetworkInfo, err error) {
+	localIP, err := GetLocalIP()
+	if err != nil {
+		log.Warn().Msgf("Error getting local IP: %v", err)
+		return NetworkInfo{}, err
+	}
+	netmask, err := GetNetmask(localIP)
+	if err != nil {
+		log.Warn().Msgf("Error getting netmask: %v", err)
+		return NetworkInfo{localIP, nil, nil}, err
+	}
+	defaultGateway, err := GetDefaultGateway()
+	if err != nil {
+		log.Warn().Msgf("Error getting default gateway: %v", err)
+		return NetworkInfo{localIP, netmask, nil}, err
+	}
+	return NetworkInfo{localIP, netmask, defaultGateway}, nil
+}
+
 func GetLocalIP() (net.IP, error) {
 	addrs, err := net.InterfaceAddrs()
 	if err != nil {
