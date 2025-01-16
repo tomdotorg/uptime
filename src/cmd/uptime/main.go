@@ -109,7 +109,7 @@ func isHostListening(host string, port int) (bool, error) {
 	return true, nil
 }
 
-func loadTargetsFromFile(filename string) []*upcheck.Target {
+func loadTargets(filename string) []*upcheck.Target {
 	var results []*upcheck.Target
 
 	// Open the file
@@ -169,17 +169,17 @@ func showStatuses(targets []*upcheck.Target) {
 
 func main() {
 	initLogs()
-	thisHost, thisNetmask, thisGateway, err := getNetworkInfo()
+	netInfo, err := getNetworkInfo()
 
 	if err != nil {
 		log.Fatal().Err(err).Msg("Error getting network info")
 	} else {
-		fmt.Printf("Local IP: %s\n", thisHost)
-		fmt.Printf("Netmask: %s\n", upcheck.IPMaskToString(thisNetmask))
-		fmt.Printf("Default Gateway: %s\n", thisGateway)
+		fmt.Printf("Local IP: %s\n", netInfo.localnet)
+		fmt.Printf("Netmask: %s\n", upcheck.IPMaskToString(netInfo.mask))
+		fmt.Printf("Default Gateway: %s\n", netInfo.gw)
 	}
 
-	checkTargets := loadTargetsFromFile(CONFIGFILE)
+	checkTargets := loadTargets(CONFIGFILE)
 	// go showStatuses(checkTargets)
 
 	// Initialize keyboard listener
@@ -219,6 +219,9 @@ func handleKeys(checkTargets []*upcheck.Target, stopChan chan struct{}) []*upche
 			os.Exit(0)
 		}
 		switch char {
+		case 'q':
+			fmt.Println("Exiting...")
+			os.Exit(0)
 		case 's':
 			upcheck.ShowStatuses(checkTargets)
 			break
@@ -296,21 +299,27 @@ func initLogs() {
 	}
 }
 
-func getNetworkInfo() (localnet net.IP, mask net.IPMask, gw net.IP, err error) {
+type NetworkInfo struct {
+	localnet net.IP
+	mask     net.IPMask
+	gw       net.IP
+}
+
+func getNetworkInfo() (netInfo NetworkInfo, err error) {
 	localIP, err := upcheck.GetLocalIP()
 	if err != nil {
 		log.Warn().Msgf("Error getting local IP: %v", err)
-		return nil, nil, nil, err
+		return NetworkInfo{}, err
 	}
 	netmask, err := upcheck.GetNetmask(localIP)
 	if err != nil {
 		log.Warn().Msgf("Error getting netmask: %v", err)
-		return localIP, nil, nil, err
+		return NetworkInfo{localIP, nil, nil}, err
 	}
 	defaultGateway, err := upcheck.GetDefaultGateway()
 	if err != nil {
 		log.Warn().Msgf("Error getting default gateway: %v", err)
-		return localIP, netmask, nil, err
+		return NetworkInfo{localIP, netmask, nil}, err
 	}
-	return localIP, netmask, defaultGateway, nil
+	return NetworkInfo{localIP, netmask, defaultGateway}, nil
 }
