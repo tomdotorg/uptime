@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"time"
@@ -15,7 +16,15 @@ import (
 const CONFIGFILE = "hosts.txt"
 
 func main() {
+	// Define command line flags
+	filename := flag.String("f", CONFIGFILE, "Filename containing the targets")
+	interval := flag.Int("i", 2, "Number of seconds between target checks")
+
+	// Parse the command line flags
+	flag.Parse()
+
 	initLogs()
+
 	netInfo, err := upcheck.GetNetworkInfo()
 
 	if err != nil {
@@ -24,9 +33,10 @@ func main() {
 		fmt.Printf("Local IP: %s\n", netInfo.Localnet)
 		fmt.Printf("Netmask: %s\n", upcheck.IPMaskToString(netInfo.Mask))
 		fmt.Printf("Default Gateway: %s\n", netInfo.GW)
+		fmt.Println()
 	}
 
-	checkTargets := upcheck.LoadTargets(CONFIGFILE)
+	checkTargets := upcheck.LoadTargets(*filename)
 	// go showStatuses(checkTargets)
 
 	// Initialize keyboard listener
@@ -39,26 +49,34 @@ func main() {
 			log.Fatal().Err(err).Msg("Failed to close keyboard")
 		}
 	}()
-	stopChan := make(chan struct{})
-	go func(stopChan chan struct{}) {
+	cmdChan := make(chan string)
+	go func(cmdChan chan string) {
 		for {
 			select {
-			case <-stopChan:
-				log.Info().Msg("Stopping...")
-				return
+			case cmd := <-cmdChan:
+				switch cmd {
+				case "stop":
+					log.Info().Msg("Stopping...")
+					return
+				case "reset":
+					log.Info().Msg("Resetting all stats...")
+					upcheck.ResetAllStats(checkTargets)
+				default:
+					log.Info().Msg("Invalid command: " + cmd)
+				}
 			default:
 				upcheck.CheckAllTargets(checkTargets)
-				time.Sleep(1 * time.Second)
+				time.Sleep(time.Duration(*interval) * time.Second)
 			}
 
 		}
-	}(stopChan)
+	}(cmdChan)
 	for {
-		handleKeys(checkTargets, stopChan)
+		handleKeys(checkTargets, cmdChan)
 	}
 }
 
-func handleKeys(checkTargets []*upcheck.Target, stopChan chan struct{}) []*upcheck.Target {
+func handleKeys(checkTargets []*upcheck.Target, cmdChan chan string) []*upcheck.Target {
 	// Check for key presses
 	if char, key, err := keyboard.GetKey(); err == nil {
 		if key == keyboard.KeyEsc || key == keyboard.KeyCtrlC {

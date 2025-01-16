@@ -57,26 +57,28 @@ var defaultTargets = []*Target{
 
 func parseHostPortType(line string) (string, net.IP, int, error) {
 	defaultPort := 80
-	var host net.IP
+	var port int
+	var err error
 	parts := strings.Split(line, ":")
-	// see if host is an IP address or a hostname
-	if net.ParseIP(parts[0]) == nil {
-		// not an IP address, so it must be a hostname
-		// resolve the hostname to an IP address
-		ips, err := net.LookupIP(parts[0])
-		host = net.ParseIP(parts[0])
-		if err != nil && len(ips) > 0 {
-			return parts[0], net.IP(ips[0]), -1, err
-		}
-	}
-	port := defaultPort
-
+	host := net.ParseIP(parts[0])
 	// If a port is provided, parse it
 	if len(parts) > 1 {
-		var err error
 		port, err = strconv.Atoi(parts[1])
 		if err != nil || port <= 0 || port > 65535 {
-			return parts[0], host, -1, err
+			log.Warn().Msgf("invalid port: %s", parts[1])
+			port = -1
+		}
+	} else {
+		port = defaultPort
+	}
+	// see if host is an IP address or a hostname
+	if host == nil {
+		// not an IP address, so it must be a hostname so resolve the hostname to an IP address
+		ips, err := net.LookupIP(parts[0])
+		if err == nil && len(ips) > 0 {
+			host = ips[0]
+		} else {
+			log.Warn().Msgf("invalid hostname: %s", parts[0])
 		}
 	}
 	return parts[0], host, port, nil
@@ -94,7 +96,7 @@ func isMemoryError(err error) bool {
 // isHostListening checks if a host is listening on a given port.
 func isHostListening(host string, port int) (bool, error) {
 	address := net.JoinHostPort(host, strconv.Itoa(port))
-	conn, err := net.DialTimeout("tcp", address, 5*time.Second)
+	conn, err := net.DialTimeout("tcp", address, 2*time.Second)
 	if conn != nil {
 		defer func(conn net.Conn) {
 			connErr := conn.Close()
@@ -104,7 +106,6 @@ func isHostListening(host string, port int) (bool, error) {
 		}(conn)
 	}
 	if err != nil {
-		// todo: treat dns issues specially: lookup www.tom.org: no such host:14])
 		if isMemoryError(err) {
 			log.Debug().Msgf("memory error connecting to %s : %s", host, err)
 			printMemUsage()
@@ -124,7 +125,7 @@ func LoadTargets(filename string) []*Target {
 	file, err := os.Open(filename)
 	if err != nil {
 		log.Warn().Err(err).Msgf("error opening %s", filename)
-		log.Info().Msg("uing defaults")
+		log.Info().Msg("using defaults")
 		return defaultTargets
 	}
 	defer func(file *os.File) {
@@ -168,17 +169,10 @@ func LoadTargets(filename string) []*Target {
 	return results
 }
 
-func showStatuses(targets []*Target) {
-	for {
-		ShowStatuses(targets)
-		time.Sleep(10 * time.Second)
-	}
-}
-
 func CheckAllTargets(targets []*Target) {
 	for _, target := range targets {
+		alive, err := isHostListening(target.IP.String(), target.Port)
 		target.Attempts++
-		alive, err := isHostListening(target.Host, target.Port)
 		if err != nil {
 			target.CurrentError = err.Error()
 			target.Errors[err.Error()]++
@@ -226,7 +220,7 @@ func (t Target) String() string {
 	} else {
 		alive = "ONLINE"
 	}
-	return fmt.Sprintf("%v:%v - %s since %s (%3.02f%%) %d/%d (%v)", t.Host, t.Port, alive, dt, float32(t.Attempts-t.Failures)/float32(t.Attempts)*100.0, t.Attempts-t.Failures, t.Attempts, t.CurrentError)
+	return fmt.Sprintf("%-20s - %s since %s (%3.02f%%) %d/%d (%v)", t.Name, alive, dt, float32(t.Attempts-t.Failures)/float32(t.Attempts)*100.0, t.Attempts-t.Failures, t.Attempts, t.CurrentError)
 }
 
 func ResetAllStats(targets []*Target) {
@@ -245,11 +239,7 @@ func resetStats(target *Target) {
 }
 
 func ShowStatus(target Target) {
-	if target.IsAlive {
-		fmt.Printf("target: %+v\n", target.String())
-	} else {
-		fmt.Printf("target: %+v\n", target.String())
-	}
+	fmt.Printf("%+v\n", target.String())
 }
 
 func ShowStatuses(targets []*Target) {
@@ -257,4 +247,20 @@ func ShowStatuses(targets []*Target) {
 		ShowStatus(*target)
 	}
 	fmt.Println()
+}
+
+func isNodeAliveOnAnyPort(address string, ports []string) (port int, err error) {
+	for _, port := range ports {
+		target := net.JoinHostPort(address, port)
+		conn, err := net.DialTimeout("tcp", target, 2*time.Second)
+		if err == nil {
+			// the linter below is worried about the defer statement in the loop.
+			// this is fine because the loop will exit after the first successful connection
+			//goland:noinspection ALL
+			defer conn.Close()
+			fmt.Printf("Node %s is reachable on port %s\n", address, port)
+			return strconv.Atoi(port)
+		}
+	}
+	return -1, nil
 }
