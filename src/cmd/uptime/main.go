@@ -6,6 +6,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/rivo/tview"
+
 	"github.com/eiannone/keyboard"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -13,9 +15,20 @@ import (
 	"upcheck"
 )
 
+var app *tview.Application
+
 const CONFIGFILE = "hosts.txt"
 
 func main() {
+	// app = tview.NewApplication()
+	// textView := tview.NewTextView().
+	// 	SetText("Hello, world!").
+	// 	SetTextAlign(tview.AlignCenter).
+	// 	SetDynamicColors(true)
+
+	// if err := app.SetRoot(textView, true).Run(); err != nil {
+	// 	panic(err)
+	// }
 	// Define command line flags
 	filename := flag.String("f", CONFIGFILE, "Filename containing the targets")
 	interval := flag.Int("i", 2, "Number of seconds between target checks")
@@ -49,6 +62,7 @@ func main() {
 			log.Fatal().Err(err).Msg("Failed to close keyboard")
 		}
 	}()
+
 	cmdChan := make(chan string)
 	go func(cmdChan chan string) {
 		for {

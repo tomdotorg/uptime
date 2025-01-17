@@ -220,7 +220,12 @@ func (t Target) String() string {
 	} else {
 		alive = "ONLINE"
 	}
-	return fmt.Sprintf("%-20s - %s since %s (%3.02f%%) %d/%d (%v)", t.Name, alive, dt, float32(t.Attempts-t.Failures)/float32(t.Attempts)*100.0, t.Attempts-t.Failures, t.Attempts, t.CurrentError)
+
+	errorStr := t.CurrentError
+	if errorStr == "" {
+		errorStr = strconv.Itoa(len(t.Errors))
+	}
+	return fmt.Sprintf("%-20s - %s since %s (%3.02f%%) %d/%d (%v)", t.Name, alive, dt, float32(t.Attempts-t.Failures)/float32(t.Attempts)*100.0, t.Attempts-t.Failures, t.Attempts, errorStr)
 }
 
 func ResetAllStats(targets []*Target) {
