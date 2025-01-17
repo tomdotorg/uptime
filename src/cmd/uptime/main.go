@@ -64,33 +64,33 @@ func main() {
 	}()
 
 	cmdChan := make(chan string)
-	go func(cmdChan chan string) {
-		for {
-			select {
-			case cmd := <-cmdChan:
-				switch cmd {
-				case "stop":
-					log.Info().Msg("Stopping...")
-					return
-				case "reset":
-					log.Info().Msg("Resetting all stats...")
-					upcheck.ResetAllStats(checkTargets)
-				default:
-					log.Info().Msg("Invalid command: " + cmd)
-				}
-			default:
-				upcheck.CheckAllTargets(checkTargets)
-				time.Sleep(time.Duration(*interval) * time.Second)
-			}
+	go loopCheckAllTargets(checkTargets, interval)(cmdChan)
 
-		}
-	}(cmdChan)
 	for {
-		handleKeys(checkTargets, cmdChan)
+		handleKeys(checkTargets, cmdChan, *interval)
 	}
 }
 
-func handleKeys(checkTargets []*upcheck.Target, cmdChan chan string) []*upcheck.Target {
+func loopCheckAllTargets(checkTargets []*upcheck.Target, interval *int) func(cmdChan chan string) {
+	return func(cmdChan chan string) {
+		ticker := time.NewTicker(time.Duration(*interval) * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case cmd := <-cmdChan:
+				if cmd == "stop" {
+					log.Info().Msg("Stopping...")
+					return
+				}
+			case <-ticker.C:
+				log.Debug().Msg("Checking all targets")
+				upcheck.CheckAllTargets(checkTargets)
+			}
+		}
+	}
+}
+
+func handleKeys(checkTargets []*upcheck.Target, cmdChan chan string, interval int) []*upcheck.Target {
 	// Check for key presses
 	if char, key, err := keyboard.GetKey(); err == nil {
 		if key == keyboard.KeyEsc || key == keyboard.KeyCtrlC {
@@ -107,6 +107,13 @@ func handleKeys(checkTargets []*upcheck.Target, cmdChan chan string) []*upcheck.
 		case 'r':
 			fmt.Println("Resetting all stats...")
 			upcheck.ResetAllStats(checkTargets)
+		case 'x':
+			fmt.Println("Stopping...")
+			cmdChan <- "stop"
+			fmt.Println("Stopped")
+			fmt.Println("Starting...")
+			go loopCheckAllTargets(checkTargets, &interval)(cmdChan)
+			fmt.Println("Started")
 		default:
 			fmt.Printf("You pressed: %q\n", char)
 		}
