@@ -104,6 +104,12 @@ func handleKeys(checkTargets []*upcheck.Target, cmdChan chan string, interval in
 		case 's':
 			upcheck.ShowStatuses(checkTargets)
 			break
+		case 'u':
+			fmt.Println("Resuming...")
+			go loopCheckAllTargets(checkTargets, &interval)(cmdChan)
+		case 'p':
+			fmt.Println("Pausing...")
+			cmdChan <- "stop"
 		case 'r':
 			fmt.Println("Resetting all stats...")
 			upcheck.ResetAllStats(checkTargets)
@@ -111,6 +117,10 @@ func handleKeys(checkTargets []*upcheck.Target, cmdChan chan string, interval in
 			fmt.Println("Stopping...")
 			cmdChan <- "stop"
 			fmt.Println("Stopped")
+			fmt.Println("Resetting all stats...")
+			upcheck.ResetAllStats(checkTargets)
+			fmt.Println("Reset all stats...")
+			upcheck.ShowStatuses(checkTargets)
 			fmt.Println("Starting...")
 			go loopCheckAllTargets(checkTargets, &interval)(cmdChan)
 			fmt.Println("Started")
