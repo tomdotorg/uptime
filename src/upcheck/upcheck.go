@@ -118,6 +118,56 @@ func isHostListening(host string, port int) (bool, error) {
 	return true, nil
 }
 
+// FindDefaultGateway returns the Target that matches the default gateway from the NetInfo struct
+func FindDefaultGateway(targets []*Target, defaultGW NetworkInfo) *Target {
+	for _, target := range targets {
+		if target.IP.Equal(defaultGW.GW) {
+			return target
+		}
+	}
+	return nil
+}
+
+// AddDefaultGatewayTarget adds the default gateway to the list of targets
+func AddDefaultGatewayTarget(targets []*Target, defaultGW NetworkInfo) []*Target {
+	// Add the validated host:port to the results array
+	rec := &Target{
+		Name:     "Default GW (auto)",
+		Host:     defaultGW.GW.String(),
+		IP:       defaultGW.GW,
+		Port:     53,
+		Attempts: 0,
+		Failures: 0,
+		IsAlive:  true,
+		Since:    time.Time{},
+		Errors:   make(map[string]int),
+	}
+	rec.Since = time.Now()
+	targets = append(targets, rec)
+	log.Debug().Msgf("added %v", rec)
+	return targets
+}
+
+// AddTarget adds a target to the list of targets
+func AddTarget(targets []*Target, name string, host string, port int) []*Target {
+	// Add the validated host:port to the results array
+	rec := &Target{
+		Name:     name,
+		Host:     host,
+		IP:       net.ParseIP(host),
+		Port:     port,
+		Attempts: 0,
+		Failures: 0,
+		IsAlive:  true,
+		Since:    time.Time{},
+		Errors:   make(map[string]int),
+	}
+	rec.Since = time.Now()
+	targets = append(targets, rec)
+	log.Debug().Msgf("added %v", rec)
+	return targets
+}
+
 func LoadTargets(filename string) []*Target {
 	var results []*Target
 
@@ -150,7 +200,7 @@ func LoadTargets(filename string) []*Target {
 					Host:     host,
 					IP:       ip,
 					Port:     port,
-					Attempts: 1,
+					Attempts: 0,
 					Failures: 0,
 					IsAlive:  true,
 					Since:    time.Time{},
@@ -225,7 +275,7 @@ func (t Target) String() string {
 	if errorStr == "" {
 		errorStr = strconv.Itoa(len(t.Errors))
 	}
-	return fmt.Sprintf("%-20s - %s since %s (%3.02f%%) %d/%d (%v)", t.Name, alive, dt, float32(t.Attempts-t.Failures)/float32(t.Attempts)*100.0, t.Attempts-t.Failures, t.Attempts, errorStr)
+	return fmt.Sprintf("%-20s %-15s - %s since %s (%3.02f%%) %d/%d (%v)", t.Name, t.IP, alive, dt, float32(t.Attempts-t.Failures)/float32(t.Attempts)*100.0, t.Attempts-t.Failures, t.Attempts, errorStr)
 }
 
 func ResetAllStats(targets []*Target) {

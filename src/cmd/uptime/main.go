@@ -50,6 +50,10 @@ func main() {
 	}
 
 	checkTargets := upcheck.LoadTargets(*filename)
+	if upcheck.FindDefaultGateway(checkTargets, netInfo) == nil {
+		log.Info().Msgf("Default gateway %s not in targets adding it", netInfo.GW)
+		checkTargets = upcheck.AddDefaultGatewayTarget(checkTargets, netInfo)
+	}
 	// go showStatuses(checkTargets)
 
 	// Initialize keyboard listener
@@ -100,6 +104,7 @@ func handleKeys(checkTargets []*upcheck.Target, cmdChan chan string, interval in
 		switch char {
 		case 'q':
 			fmt.Println("Exiting...")
+			cmdChan <- "stop"
 			os.Exit(0)
 		case 's':
 			upcheck.ShowStatuses(checkTargets)
