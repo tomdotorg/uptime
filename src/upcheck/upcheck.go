@@ -35,7 +35,7 @@ var defaultTargets = []*Target{
 		IP:       net.IP{8, 8, 8, 8},
 		Port:     53,
 		Type:     0,
-		IsAlive:  false,
+		IsAlive:  true,
 		Since:    time.Now(),
 		Attempts: 0,
 		Failures: 0,
@@ -47,7 +47,7 @@ var defaultTargets = []*Target{
 		IP:       net.IP{1, 1, 1, 1},
 		Port:     53,
 		Type:     0,
-		IsAlive:  false,
+		IsAlive:  true,
 		Since:    time.Now(),
 		Attempts: 0,
 		Failures: 0,
@@ -264,18 +264,18 @@ func printMemUsage() {
 
 func (t Target) String() string {
 	dt := t.Since.Format("15:04:05")
-	alive := "OFFLINE"
+	var alive string
 	if !t.IsAlive {
-		alive = "OFFLINE"
+		alive = "DOWN"
 	} else {
-		alive = "ONLINE"
+		alive = "UP"
 	}
 
 	errorStr := t.CurrentError
 	if errorStr == "" {
 		errorStr = strconv.Itoa(len(t.Errors))
 	}
-	return fmt.Sprintf("%-20s %-15s - %s since %s (%3.02f%%) %d/%d (%v)", t.Name, t.IP, alive, dt, float32(t.Attempts-t.Failures)/float32(t.Attempts)*100.0, t.Attempts-t.Failures, t.Attempts, errorStr)
+	return fmt.Sprintf("%-20s %-15s - %-4s since %s %6.2f%% %d/%d (%v)", t.Name, t.IP, alive, dt, float32(t.Attempts-t.Failures)/float32(t.Attempts)*100.0, t.Attempts-t.Failures, t.Attempts, errorStr)
 }
 
 func ResetAllStats(targets []*Target) {

@@ -85,6 +85,7 @@ func isInSubnet(ip net.IP, subnet net.IPNet, mask net.IPMask) bool {
 func getDarwinGateway() (net.IP, error) {
 	// Use "route -n get default" command for macOS
 	gw := net.IP{}
+	gatewayFound := false
 
 	cmd := exec.Command("route", "-n", "get", "default")
 	var out bytes.Buffer
@@ -99,6 +100,7 @@ func getDarwinGateway() (net.IP, error) {
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "gateway:") {
+			gatewayFound = true
 			parts := strings.Fields(line)
 			if len(parts) >= 2 {
 				// parse a string like "1.2.3.4" into a net.IP
@@ -108,6 +110,9 @@ func getDarwinGateway() (net.IP, error) {
 				}
 			}
 		}
+	}
+	if !gatewayFound {
+		return nil, fmt.Errorf("gateway not found - is your network up")
 	}
 	return gw, nil
 }
