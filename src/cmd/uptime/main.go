@@ -79,7 +79,7 @@ func loopCheckAllTargets(checkTargets []*upcheck.Target, interval *int) func(cmd
 			select {
 			case cmd := <-cmdChan:
 				if cmd == "stop" {
-					log.Info().Msg("Stopping...")
+					log.Debug().Msg("Stopping...")
 					return
 				}
 			case <-ticker.C:
