@@ -275,7 +275,8 @@ func (t Target) String() string {
 	if errorStr == "" {
 		errorStr = strconv.Itoa(len(t.Errors))
 	}
-	return fmt.Sprintf("%-20s %-15s - %-4s since %s %6.2f%% %d/%d (%v)", t.Name, t.IP, alive, dt, float32(t.Attempts-t.Failures)/float32(t.Attempts)*100.0, t.Attempts-t.Failures, t.Attempts, errorStr)
+	addrPort := net.JoinHostPort(t.IP.String(), strconv.Itoa(t.Port))
+	return fmt.Sprintf("%-20s %-20s - %-4s since %s %6.2f%% %d/%d (%v)", t.Name, addrPort, alive, dt, float32(t.Attempts-t.Failures)/float32(t.Attempts)*100.0, t.Attempts-t.Failures, t.Attempts, errorStr)
 }
 
 func ResetAllStats(targets []*Target) {
