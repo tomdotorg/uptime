@@ -22,17 +22,22 @@ type RunInfo struct {
 	checkTargets       []*upcheck.Target
 	configFilename     *string
 	interval           *int
+	app                *tview.Application
 }
-
-var app *tview.Application
 
 const CONFIGFILE = "hosts.txt"
 
 func main() {
 	runInfo := RunInfo{
 		programStartedTime: func() *time.Time { t := time.Now(); return &t }(),
+		app:                tview.NewApplication(),
+		configFilename:     flag.String("f", CONFIGFILE, "Filename containing the targets"),
+		interval:           flag.Int("i", 2, "Number of seconds between target checks"),
 	}
-	// app = tview.NewApplication()
+
+	// Parse the command line flags
+	flag.Parse()
+
 	// textView := tview.NewTextView().
 	// 	SetText("Hello, world!").
 	// 	SetTextAlign(tview.AlignCenter).
@@ -42,11 +47,6 @@ func main() {
 	// 	panic(err)
 	// }
 	// Define command line flags
-	runInfo.configFilename = flag.String("f", CONFIGFILE, "Filename containing the targets")
-	runInfo.interval = flag.Int("i", 2, "Number of seconds between target checks")
-
-	// Parse the command line flags
-	flag.Parse()
 
 	initLogs()
 
@@ -63,7 +63,7 @@ func main() {
 	}
 
 	runInfo.checkTargets = upcheck.LoadTargets(*runInfo.configFilename)
-	if upcheck.FindDefaultGateway(runInfo.checkTargets, netInfo) == nil {
+	if upcheck.FindDefaultGateway(runInfo.checkTargets, runInfo.networkInfo) == nil {
 		log.Info().Msgf("Default gateway %s not in targets adding it", netInfo.GW)
 		runInfo.checkTargets = upcheck.AddDefaultGatewayTarget(runInfo.checkTargets, netInfo)
 	}

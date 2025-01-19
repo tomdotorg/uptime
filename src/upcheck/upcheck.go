@@ -119,7 +119,7 @@ func isHostListening(host string, port int) (bool, error) {
 }
 
 // FindDefaultGateway returns the Target that matches the default gateway from the NetInfo struct
-func FindDefaultGateway(targets []*Target, defaultGW NetworkInfo) *Target {
+func FindDefaultGateway(targets []*Target, defaultGW *NetworkInfo) *Target {
 	for _, target := range targets {
 		if target.IP.Equal(defaultGW.GW) {
 			return target
