@@ -15,11 +15,23 @@ import (
 	"upcheck"
 )
 
+type RunInfo struct {
+	programStartedTime *time.Time
+	networkInfo        *upcheck.NetworkInfo
+	configTime         *time.Time
+	checkTargets       []*upcheck.Target
+	configFilename     *string
+	interval           *int
+}
+
 var app *tview.Application
 
 const CONFIGFILE = "hosts.txt"
 
 func main() {
+	runInfo := RunInfo{
+		programStartedTime: func() *time.Time { t := time.Now(); return &t }(),
+	}
 	// app = tview.NewApplication()
 	// textView := tview.NewTextView().
 	// 	SetText("Hello, world!").
@@ -30,8 +42,8 @@ func main() {
 	// 	panic(err)
 	// }
 	// Define command line flags
-	filename := flag.String("f", CONFIGFILE, "Filename containing the targets")
-	interval := flag.Int("i", 2, "Number of seconds between target checks")
+	runInfo.configFilename = flag.String("f", CONFIGFILE, "Filename containing the targets")
+	runInfo.interval = flag.Int("i", 2, "Number of seconds between target checks")
 
 	// Parse the command line flags
 	flag.Parse()
@@ -43,18 +55,18 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("Error getting network info")
 	} else {
+		runInfo.networkInfo = &netInfo
 		fmt.Printf("Local IP: %s\n", netInfo.Localnet)
 		fmt.Printf("Netmask: %s\n", upcheck.IPMaskToString(netInfo.Mask))
 		fmt.Printf("Default Gateway: %s\n", netInfo.GW)
 		fmt.Println()
 	}
 
-	checkTargets := upcheck.LoadTargets(*filename)
-	if upcheck.FindDefaultGateway(checkTargets, netInfo) == nil {
+	runInfo.checkTargets = upcheck.LoadTargets(*runInfo.configFilename)
+	if upcheck.FindDefaultGateway(runInfo.checkTargets, netInfo) == nil {
 		log.Info().Msgf("Default gateway %s not in targets adding it", netInfo.GW)
-		checkTargets = upcheck.AddDefaultGatewayTarget(checkTargets, netInfo)
+		runInfo.checkTargets = upcheck.AddDefaultGatewayTarget(runInfo.checkTargets, netInfo)
 	}
-	// go showStatuses(checkTargets)
 
 	// Initialize keyboard listener
 	if err := keyboard.Open(); err != nil {
@@ -68,10 +80,9 @@ func main() {
 	}()
 
 	cmdChan := make(chan string)
-	go loopCheckAllTargets(checkTargets, interval)(cmdChan)
-
+	go loopCheckAllTargets(runInfo.checkTargets, runInfo.interval)(cmdChan)
 	for {
-		handleKeys(checkTargets, cmdChan, *interval)
+		handleKeys(runInfo.checkTargets, cmdChan, runInfo)
 	}
 }
 
@@ -95,7 +106,7 @@ func loopCheckAllTargets(checkTargets []*upcheck.Target, interval *int) func(cmd
 	}
 }
 
-func handleKeys(checkTargets []*upcheck.Target, cmdChan chan string, interval int) []*upcheck.Target {
+func handleKeys(checkTargets []*upcheck.Target, cmdChan chan string, runInfo RunInfo) []*upcheck.Target {
 	// Check for key presses
 	if char, key, err := keyboard.GetKey(); err == nil {
 		if key == keyboard.KeyEsc || key == keyboard.KeyCtrlC {
@@ -112,7 +123,7 @@ func handleKeys(checkTargets []*upcheck.Target, cmdChan chan string, interval in
 			break
 		case 'u':
 			fmt.Println("Resuming...")
-			go loopCheckAllTargets(checkTargets, &interval)(cmdChan)
+			go loopCheckAllTargets(checkTargets, runInfo.interval)(cmdChan)
 		case 'p':
 			fmt.Println("Pausing...")
 			cmdChan <- "stop"
@@ -128,7 +139,7 @@ func handleKeys(checkTargets []*upcheck.Target, cmdChan chan string, interval in
 			fmt.Println("Reset all stats...")
 			upcheck.ShowStatuses(checkTargets)
 			fmt.Println("Starting...")
-			go loopCheckAllTargets(checkTargets, &interval)(cmdChan)
+			go loopCheckAllTargets(checkTargets, runInfo.interval)(cmdChan)
 			fmt.Println("Started")
 		default:
 			fmt.Printf("You pressed: %q\n", char)
