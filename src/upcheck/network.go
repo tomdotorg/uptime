@@ -17,6 +17,10 @@ type NetworkInfo struct {
 	GW       net.IP
 }
 
+func (n NetworkInfo) Equals(o NetworkInfo) bool {
+	return n.Localnet.Equal(o.Localnet) && bytes.Equal(n.Mask, o.Mask) && n.GW.Equal(o.GW)
+}
+
 func GetNetworkInfo() (netInfo NetworkInfo, err error) {
 	localIP, err := GetLocalIP()
 	if err != nil {
@@ -152,7 +156,7 @@ func getLinuxGateway() (net.IP, error) {
 
 func GetDefaultGateway() (net.IP, error) {
 	myOs := runtime.GOOS
-	log.Info().Msgf("OS: %s", myOs)
+	log.Debug().Msgf("OS: %s", myOs)
 	if myOs == "linux" {
 		return getLinuxGateway()
 	} else if myOs == "darwin" {

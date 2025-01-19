@@ -129,7 +129,7 @@ func FindDefaultGateway(targets []*Target, defaultGW *NetworkInfo) *Target {
 }
 
 // AddDefaultGatewayTarget adds the default gateway to the list of targets
-func AddDefaultGatewayTarget(targets []*Target, netInfo NetworkInfo) []*Target {
+func AddDefaultGatewayTarget(targets []*Target, netInfo *NetworkInfo) []*Target {
 	// see if the gw is listening on 53, else try 80, else quit trying
 	var foundListenPort = false
 	var listenPort = -1
@@ -182,7 +182,7 @@ func AddTarget(targets []*Target, name string, host string, port int) []*Target 
 }
 
 func LoadTargets(filename string) []*Target {
-	var results []*Target
+	results := make([]*Target, 0)
 
 	// Open the file
 	file, err := os.Open(filename)
@@ -228,6 +228,15 @@ func LoadTargets(filename string) []*Target {
 	// Check for any scanner errors
 	if err := scanner.Err(); err != nil {
 		log.Fatal().Err(err).Msgf("error reading %s", filename)
+	}
+	netInfo, err := GetNetworkInfo()
+	if err != nil {
+		log.Fatal().Msg("error getting network info")
+	}
+	defaultGWTarget := FindDefaultGateway(results, &netInfo)
+	if defaultGWTarget == nil {
+		log.Info().Msgf("Default gateway %s not in targets adding it", netInfo.GW)
+		results = AddDefaultGatewayTarget(results, &netInfo)
 	}
 	return results
 }
