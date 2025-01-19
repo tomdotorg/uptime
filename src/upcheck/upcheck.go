@@ -129,13 +129,26 @@ func FindDefaultGateway(targets []*Target, defaultGW NetworkInfo) *Target {
 }
 
 // AddDefaultGatewayTarget adds the default gateway to the list of targets
-func AddDefaultGatewayTarget(targets []*Target, defaultGW NetworkInfo) []*Target {
-	// Add the validated host:port to the results array
+func AddDefaultGatewayTarget(targets []*Target, netInfo NetworkInfo) []*Target {
+	// see if the gw is listening on 53, else try 80, else quit trying
+	var foundListenPort = false
+	var listenPort = -1
+	ports := []int{53, 80}
+	for _, targetPort := range ports {
+		if listening, _ := isHostListening(netInfo.GW.String(), targetPort); listening {
+			foundListenPort = true
+			listenPort = targetPort
+			break
+		}
+	}
+	if !foundListenPort {
+		log.Warn().Msgf("default gateway %s is not listening on known ports", netInfo.GW)
+	}
 	rec := &Target{
 		Name:     "Default GW (auto)",
-		Host:     defaultGW.GW.String(),
-		IP:       defaultGW.GW,
-		Port:     53,
+		Host:     netInfo.GW.String(),
+		IP:       netInfo.GW,
+		Port:     listenPort,
 		Attempts: 0,
 		Failures: 0,
 		IsAlive:  true,
