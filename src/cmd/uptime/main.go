@@ -169,6 +169,12 @@ func handleKeys(runInfo *RunInfo, cmdChan chan string) []*upcheck.Target {
 		case 'r':
 			fmt.Println("Resetting all stats...")
 			upcheck.ResetAllStats(runInfo.checkTargets)
+		case '?':
+			fmt.Println("Commands:")
+			fmt.Println("  q or x: quit")
+			fmt.Println("  s: show targets")
+			fmt.Println("  p: pause/resume")
+			fmt.Println("  r: reset all stats")
 		default:
 			fmt.Printf("You pressed: %q\n", char)
 		}
