@@ -87,6 +87,7 @@ func main() {
 
 func showTargets(runInfo RunInfo) {
 	fmt.Println(time.Now().Format("2006-01-02 15:04:05"))
+	fmt.Printf("\nNetwork Config:\n%v\n\n", *runInfo.networkInfo)
 	subnetTargets, gatewayTargets, externalTargets := classifyTargets(runInfo.checkTargets, runInfo.networkInfo)
 	upcheck.ShowStatuses("Subnet Targets", subnetTargets)
 	upcheck.ShowStatuses("Gateway Targets", gatewayTargets)
