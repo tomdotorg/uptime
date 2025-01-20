@@ -58,13 +58,20 @@ func main() {
 		log.Fatal().Err(err).Msg("Error getting network info")
 	} else {
 		runInfo.networkInfo = &netInfo
-		fmt.Printf("Local IP: %s\n", netInfo.Localnet)
+		fmt.Printf("Local IP: %s\n", netInfo.Address)
 		fmt.Printf("Netmask: %s\n", upcheck.IPMaskToString(netInfo.Mask))
 		fmt.Printf("Default Gateway: %s\n", netInfo.GW)
 		fmt.Println()
 	}
 
 	runInfo.checkTargets = upcheck.LoadTargets(*runInfo.configFilename)
+	subnetTargets, gatewayTargets, externalTargets := classifyTargets(runInfo.checkTargets, runInfo.networkInfo)
+	fmt.Println("Subnet Targets:")
+	upcheck.ShowStatuses(subnetTargets)
+	fmt.Println("Gateway Targets:")
+	upcheck.ShowStatuses(gatewayTargets)
+	fmt.Println("External Targets:")
+	upcheck.ShowStatuses(externalTargets)
 
 	// Initialize keyboard listener
 	if err := keyboard.Open(); err != nil {
@@ -104,16 +111,37 @@ func loopCheckAllTargets(runInfo *RunInfo, cmdChan chan string) {
 			} else if !runInfo.networkInfo.Equals(newNetInfo) {
 				log.Warn().Msg("Network change detected")
 				runInfo.networkInfo = &newNetInfo
-				fmt.Printf("New Local IP: %s\n", newNetInfo.Localnet)
+				fmt.Printf("New Local IP: %s\n", newNetInfo.Address)
 				fmt.Printf("New Netmask: %s\n", upcheck.IPMaskToString(newNetInfo.Mask))
 				fmt.Printf("New Default Gateway: %s\n", newNetInfo.GW)
 				log.Info().Msg("Reloading targets")
 				runInfo.checkTargets = upcheck.LoadTargets(*runInfo.configFilename)
+				subnetTargets, gatewayTargets, externalTargets := classifyTargets(runInfo.checkTargets, runInfo.networkInfo)
+				fmt.Println("Subnet Targets:")
+				upcheck.ShowStatuses(subnetTargets)
+				fmt.Println("Gateway Targets:")
+				upcheck.ShowStatuses(gatewayTargets)
+				fmt.Println("External Targets:")
+				upcheck.ShowStatuses(externalTargets)
 			}
 			log.Debug().Msg("Checking all targets")
 			upcheck.CheckAllTargets(runInfo.checkTargets)
 		}
 	}
+}
+
+// classify the targets as on this subnet, gateway, or external to this subnet
+func classifyTargets(targets []*upcheck.Target, netInfo *upcheck.NetworkInfo) (subnetTargets, gatewayTargets, externalTargets []*upcheck.Target) {
+	for _, target := range targets {
+		if target.IP.Equal(netInfo.GW) {
+			gatewayTargets = append(gatewayTargets, target)
+		} else if upcheck.IsInSameSubnet(netInfo.Address, netInfo.Mask, target.IP) {
+			subnetTargets = append(subnetTargets, target)
+		} else {
+			externalTargets = append(externalTargets, target)
+		}
+	}
+	return
 }
 
 func handleKeys(runInfo *RunInfo, cmdChan chan string) []*upcheck.Target {

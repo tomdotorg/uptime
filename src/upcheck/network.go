@@ -12,13 +12,17 @@ import (
 )
 
 type NetworkInfo struct {
-	Localnet net.IP
-	Mask     net.IPMask
-	GW       net.IP
+	Address net.IP
+	Mask    net.IPMask
+	GW      net.IP
 }
 
 func (n NetworkInfo) Equals(o NetworkInfo) bool {
-	return n.Localnet.Equal(o.Localnet) && bytes.Equal(n.Mask, o.Mask) && n.GW.Equal(o.GW)
+	return n.Address.Equal(o.Address) && bytes.Equal(n.Mask, o.Mask) && n.GW.Equal(o.GW)
+}
+
+func (n NetworkInfo) String() string {
+	return fmt.Sprintf("Address: %s\nMask: %s\nGW: %s", n.Address, IPMaskToString(n.Mask), n.GW)
 }
 
 func GetNetworkInfo() (netInfo NetworkInfo, err error) {
