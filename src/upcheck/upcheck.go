@@ -298,7 +298,7 @@ func (t Target) String() string {
 		errorStr = strconv.Itoa(len(t.Errors))
 	}
 	addrPort := net.JoinHostPort(t.IP.String(), strconv.Itoa(t.Port))
-	return fmt.Sprintf("%-20s %-20s - %-4s since %s %6.2f%% %d/%d (%v)", t.Name, addrPort, alive, dt, float32(t.Attempts-t.Failures)/float32(t.Attempts)*100.0, t.Attempts-t.Failures, t.Attempts, errorStr)
+	return fmt.Sprintf("%-20s %-20s - %-4s since %s %6.2f%% %d/%d (%s)", t.Name, addrPort, alive, dt, float32(t.Attempts-t.Failures)/float32(t.Attempts)*100.0, t.Attempts-t.Failures, t.Attempts, errorStr)
 }
 
 func ResetAllStats(targets []*Target) {
@@ -320,7 +320,8 @@ func ShowStatus(target Target) {
 	fmt.Printf("%+v\n", target.String())
 }
 
-func ShowStatuses(targets []*Target) {
+func ShowStatuses(heading string, targets []*Target) {
+	fmt.Println(heading)
 	for _, target := range targets {
 		ShowStatus(*target)
 	}

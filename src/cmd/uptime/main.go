@@ -88,12 +88,9 @@ func main() {
 func showTargets(runInfo RunInfo) {
 	fmt.Println(time.Now().Format("2006-01-02 15:04:05"))
 	subnetTargets, gatewayTargets, externalTargets := classifyTargets(runInfo.checkTargets, runInfo.networkInfo)
-	fmt.Println("Subnet Targets:")
-	upcheck.ShowStatuses(subnetTargets)
-	fmt.Println("Gateway Targets:")
-	upcheck.ShowStatuses(gatewayTargets)
-	fmt.Println("External Targets:")
-	upcheck.ShowStatuses(externalTargets)
+	upcheck.ShowStatuses("Subnet Targets", subnetTargets)
+	upcheck.ShowStatuses("Gateway Targets", gatewayTargets)
+	upcheck.ShowStatuses("External Targets", externalTargets)
 }
 
 func loopCheckAllTargets(runInfo *RunInfo, cmdChan chan string) {
@@ -151,7 +148,7 @@ func handleKeys(runInfo *RunInfo, cmdChan chan string) []*upcheck.Target {
 			os.Exit(0)
 		}
 		switch char {
-		case 'q':
+		case 'q', 'x':
 			fmt.Println("Exiting...")
 			cmdChan <- "stop"
 			os.Exit(0)
@@ -165,23 +162,12 @@ func handleKeys(runInfo *RunInfo, cmdChan chan string) []*upcheck.Target {
 				go loopCheckAllTargets(runInfo, cmdChan)
 			} else {
 				fmt.Println("Pausing...")
-				*runInfo.paused = true
 				cmdChan <- "stop"
+				*runInfo.paused = true
 			}
 		case 'r':
 			fmt.Println("Resetting all stats...")
 			upcheck.ResetAllStats(runInfo.checkTargets)
-		case 'x':
-			fmt.Println("Stopping...")
-			cmdChan <- "stop"
-			fmt.Println("Stopped")
-			fmt.Println("Resetting all stats...")
-			upcheck.ResetAllStats(runInfo.checkTargets)
-			fmt.Println("Reset all stats...")
-			upcheck.ShowStatuses(runInfo.checkTargets)
-			fmt.Println("Starting...")
-			go loopCheckAllTargets(runInfo, cmdChan)
-			fmt.Println("Started")
 		default:
 			fmt.Printf("You pressed: %q\n", char)
 		}
