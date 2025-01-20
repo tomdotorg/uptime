@@ -65,13 +65,7 @@ func main() {
 	}
 
 	runInfo.checkTargets = upcheck.LoadTargets(*runInfo.configFilename)
-	subnetTargets, gatewayTargets, externalTargets := classifyTargets(runInfo.checkTargets, runInfo.networkInfo)
-	fmt.Println("Subnet Targets:")
-	upcheck.ShowStatuses(subnetTargets)
-	fmt.Println("Gateway Targets:")
-	upcheck.ShowStatuses(gatewayTargets)
-	fmt.Println("External Targets:")
-	upcheck.ShowStatuses(externalTargets)
+	showTargets(runInfo)
 
 	// Initialize keyboard listener
 	if err := keyboard.Open(); err != nil {
@@ -89,6 +83,17 @@ func main() {
 	for {
 		handleKeys(&runInfo, cmdChan)
 	}
+}
+
+func showTargets(runInfo RunInfo) {
+	fmt.Println(time.Now().Format("2006-01-02 15:04:05"))
+	subnetTargets, gatewayTargets, externalTargets := classifyTargets(runInfo.checkTargets, runInfo.networkInfo)
+	fmt.Println("Subnet Targets:")
+	upcheck.ShowStatuses(subnetTargets)
+	fmt.Println("Gateway Targets:")
+	upcheck.ShowStatuses(gatewayTargets)
+	fmt.Println("External Targets:")
+	upcheck.ShowStatuses(externalTargets)
 }
 
 func loopCheckAllTargets(runInfo *RunInfo, cmdChan chan string) {
@@ -116,13 +121,7 @@ func loopCheckAllTargets(runInfo *RunInfo, cmdChan chan string) {
 				fmt.Printf("New Default Gateway: %s\n", newNetInfo.GW)
 				log.Info().Msg("Reloading targets")
 				runInfo.checkTargets = upcheck.LoadTargets(*runInfo.configFilename)
-				subnetTargets, gatewayTargets, externalTargets := classifyTargets(runInfo.checkTargets, runInfo.networkInfo)
-				fmt.Println("Subnet Targets:")
-				upcheck.ShowStatuses(subnetTargets)
-				fmt.Println("Gateway Targets:")
-				upcheck.ShowStatuses(gatewayTargets)
-				fmt.Println("External Targets:")
-				upcheck.ShowStatuses(externalTargets)
+				showTargets(*runInfo)
 			}
 			log.Debug().Msg("Checking all targets")
 			upcheck.CheckAllTargets(runInfo.checkTargets)
@@ -157,7 +156,7 @@ func handleKeys(runInfo *RunInfo, cmdChan chan string) []*upcheck.Target {
 			cmdChan <- "stop"
 			os.Exit(0)
 		case 's':
-			upcheck.ShowStatuses(runInfo.checkTargets)
+			showTargets(*runInfo)
 			break
 		case 'p':
 			if *runInfo.paused {
