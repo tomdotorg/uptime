@@ -1,10 +1,11 @@
 go 1.23
 
-toolchain go1.23.1
+toolchain go1.23.5
 
 use (
 	./cmd/moretests
 	./cmd/test
 	./cmd/uptime
 	./upcheck
+	./cmd/tview
 )
