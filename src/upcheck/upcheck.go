@@ -10,9 +10,16 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
+	
 	"github.com/rs/zerolog/log"
 )
+
+type CheckInfo struct {
+	isUp        bool
+	hostPort    string
+	elapsedTime time.Duration
+	err         error
+}
 
 type Target struct {
 	Name         string
@@ -23,6 +30,8 @@ type Target struct {
 	IsAlive      bool
 	Since        time.Time
 	CurrentError string
+	LastLatency  time.Duration
+	TotalLatency time.Duration
 	Attempts     int
 	Failures     int
 	Errors       map[string]int
@@ -94,9 +103,13 @@ func isMemoryError(err error) bool {
 }
 
 // isHostListening checks if a host is listening on a given port.
-func isHostListening(host string, port int) (bool, error) {
+func isHostListening(host string, port int) (checkInfo CheckInfo, err error) {
 	address := net.JoinHostPort(host, strconv.Itoa(port))
+	start := time.Now()
 	conn, err := net.DialTimeout("tcp", address, 2*time.Second)
+	checkInfo.elapsedTime = time.Now().Sub(start)
+	checkInfo.hostPort = address
+	checkInfo.isUp = true
 	if conn != nil {
 		defer func(conn net.Conn) {
 			connErr := conn.Close()
@@ -105,17 +118,18 @@ func isHostListening(host string, port int) (bool, error) {
 			}
 		}(conn)
 	}
+	
 	if err != nil {
 		if isMemoryError(err) {
 			log.Debug().Msgf("memory error connecting to %s : %s", host, err)
 			printMemUsage()
 			// for now, ignore memory errors TODO: handle this better
-			return true, err
+			return CheckInfo{true, address, checkInfo.elapsedTime, nil}, nil
 		}
-		return false, err
+		return CheckInfo{false, address, checkInfo.elapsedTime, nil}, err
 	}
 	// if we get here, the connection was successful
-	return true, nil
+	return CheckInfo{true, address, checkInfo.elapsedTime, nil}, nil
 }
 
 // FindDefaultGateway returns the Target that matches the default gateway from the NetInfo struct
@@ -134,8 +148,10 @@ func AddDefaultGatewayTarget(targets []*Target, netInfo *NetworkInfo) []*Target 
 	var foundListenPort = false
 	var listenPort = -1
 	ports := []int{53, 80}
+	var upCheckInfo CheckInfo
 	for _, targetPort := range ports {
-		if listening, _ := isHostListening(netInfo.GW.String(), targetPort); listening {
+		upCheckInfo, _ = isHostListening(netInfo.GW.String(), targetPort)
+		if upCheckInfo.isUp {
 			foundListenPort = true
 			listenPort = targetPort
 			break
@@ -144,18 +160,21 @@ func AddDefaultGatewayTarget(targets []*Target, netInfo *NetworkInfo) []*Target 
 	if !foundListenPort {
 		log.Warn().Msgf("default gateway %s is not listening on known ports", netInfo.GW)
 	}
+	name := netInfo.GW.String() + " (auto)"
 	rec := &Target{
-		Name:     "Default GW (auto)",
-		Host:     netInfo.GW.String(),
-		IP:       netInfo.GW,
-		Port:     listenPort,
-		Attempts: 0,
-		Failures: 0,
-		IsAlive:  true,
-		Since:    time.Time{},
-		Errors:   make(map[string]int),
+		Name:        name,
+		Host:        netInfo.GW.String(),
+		IP:          netInfo.GW,
+		Port:        listenPort,
+		Attempts:    0,
+		Failures:    0,
+		IsAlive:     true,
+		Since:       time.Time{},
+		LastLatency: upCheckInfo.elapsedTime,
+		Errors:      make(map[string]int),
 	}
 	rec.Since = time.Now()
+	rec.TotalLatency += upCheckInfo.elapsedTime
 	targets = append(targets, rec)
 	log.Debug().Msgf("added %v", rec)
 	return targets
@@ -183,7 +202,7 @@ func AddTarget(targets []*Target, name string, host string, port int) []*Target 
 
 func LoadTargets(filename string) []*Target {
 	results := make([]*Target, 0)
-
+	
 	// Open the file
 	file, err := os.Open(filename)
 	if err != nil {
@@ -197,7 +216,7 @@ func LoadTargets(filename string) []*Target {
 			log.Fatal().Err(err).Msgf("error closing %s", filename)
 		}
 	}(file)
-
+	
 	// Read each line from the file
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
@@ -243,13 +262,15 @@ func LoadTargets(filename string) []*Target {
 
 func CheckAllTargets(targets []*Target) {
 	for _, target := range targets {
-		alive, err := isHostListening(target.IP.String(), target.Port)
+		upCheckInfo, err := isHostListening(target.IP.String(), target.Port)
 		target.Attempts++
 		if err != nil {
 			target.CurrentError = err.Error()
 			target.Errors[err.Error()]++
 		}
-		if alive {
+		if upCheckInfo.isUp {
+			target.LastLatency = upCheckInfo.elapsedTime
+			target.TotalLatency += upCheckInfo.elapsedTime
 			if !target.IsAlive {
 				target.IsAlive = true
 				target.CurrentError = ""
@@ -285,20 +306,39 @@ func printMemUsage() {
 }
 
 func (t Target) String() string {
-	dt := t.Since.Format("15:04:05")
+	// dt := t.Since.Format("15:04:05")
 	var alive string
 	if !t.IsAlive {
 		alive = "DOWN"
 	} else {
 		alive = "UP"
 	}
-
+	
+	uptime := time.Now().Sub(t.Since).Round(time.Second)
+	
 	errorStr := t.CurrentError
-	if errorStr == "" {
-		errorStr = strconv.Itoa(len(t.Errors))
+	if errorStr == "" { // no current error, so count the errors
+		log.Debug().Msgf("no current error, so count the errors")
+		errorCount := 0
+		for k, v := range t.Errors {
+			log.Debug().Msgf("error: %s count: %d", k, v)
+			errorCount += t.Errors[k]
+		}
+		errorStr = strconv.Itoa(errorCount)
 	}
-	addrPort := net.JoinHostPort(t.IP.String(), strconv.Itoa(t.Port))
-	return fmt.Sprintf("%-20s %-20s - %-4s since %s %6.2f%% %d/%d (%s)", t.Name, addrPort, alive, dt, float32(t.Attempts-t.Failures)/float32(t.Attempts)*100.0, t.Attempts-t.Failures, t.Attempts, errorStr)
+	var avgLatency string
+	if t.Attempts-t.Failures == 0 {
+		avgLatency = "NaN"
+	} else {
+		avgLatency = strconv.FormatInt(t.TotalLatency.Milliseconds()/int64(t.Attempts-t.Failures), 10)
+	}
+	
+	uptimeAvg := "NaN"
+	if t.Attempts > 0 {
+		uptimeAvg = fmt.Sprintf("%6.02f%%", float32(t.Attempts-t.Failures)/float32(t.Attempts)*100.0)
+	}
+	
+	return fmt.Sprintf("%-20s - %-4s %dms (avg %s) %v %s %d/%d (%s)", t.Name, alive, t.LastLatency.Milliseconds(), avgLatency, uptime, uptimeAvg, t.Attempts-t.Failures, t.Attempts, errorStr)
 }
 
 func ResetAllStats(targets []*Target) {
@@ -342,4 +382,18 @@ func isNodeAliveOnAnyPort(address string, ports []string) (port int, err error) 
 		}
 	}
 	return -1, nil
+}
+
+// ClassifyTargets classify the targets as on this subnet, gateway, or external to this subnet
+func ClassifyTargets(targets []*Target, netInfo *NetworkInfo) (subnetTargets, gatewayTargets, externalTargets []*Target) {
+	for _, target := range targets {
+		if target.IP.Equal(netInfo.GW) {
+			gatewayTargets = append(gatewayTargets, target)
+		} else if IsInSameSubnet(netInfo.Address, netInfo.Mask, target.IP) {
+			subnetTargets = append(subnetTargets, target)
+		} else {
+			externalTargets = append(externalTargets, target)
+		}
+	}
+	return
 }

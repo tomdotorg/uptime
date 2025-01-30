@@ -8,4 +8,5 @@ use (
 	./cmd/uptime
 	./upcheck
 	./cmd/tview
+	cmd/netstuff
 )

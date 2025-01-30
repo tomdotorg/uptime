@@ -2,11 +2,13 @@ package upcheck
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"net"
 	"os/exec"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog/log"
 )
@@ -26,6 +28,13 @@ func (n NetworkInfo) String() string {
 }
 
 func GetNetworkInfo() (netInfo NetworkInfo, err error) {
+	// let's see if we have a connection at all
+	hasNetwork := HasNetworkConnection()
+	if !hasNetwork {
+		log.Debug().Msg("No network connection detected")
+		return NetworkInfo{}, fmt.Errorf("no network connection")
+	}
+
 	localIP, err := GetLocalIP()
 	if err != nil {
 		log.Warn().Msgf("Error getting local IP: %v", err)
@@ -120,7 +129,7 @@ func getDarwinGateway() (net.IP, error) {
 		}
 	}
 	if !gatewayFound {
-		return nil, fmt.Errorf("gateway not found - is your network up")
+		return nil, fmt.Errorf("gateway not found - network likely down")
 	}
 	return gw, nil
 }
@@ -182,4 +191,69 @@ func IsInSameSubnet(baseIP net.IP, mask net.IPMask, checkIP net.IP) bool {
 	baseNetwork := baseIP.Mask(mask)
 	checkNetwork := checkIP.Mask(mask)
 	return baseNetwork.Equal(checkNetwork)
+}
+
+func HasNetworkConnection() bool {
+	hasNetwork := false
+	interfaces, err := net.Interfaces()
+	if err != nil {
+		log.Warn().Msgf("Error fetching interfaces: %v\n", err)
+		return false
+	}
+
+	for _, iface := range interfaces {
+		// Ignore interfaces that are down or loopback
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+
+		// Check if the interface name indicates a tunnel (e.g., utun*)
+		if strings.HasPrefix(iface.Name, "utun") {
+			continue
+		}
+
+		// Retrieve addresses associated with the interface
+		addrs, err := iface.Addrs()
+		if err != nil {
+			log.Warn().Msgf("Error fetching addresses for interface %s: %v\n", iface.Name, err)
+			continue
+		}
+
+		// Look for valid IPv4 addresses
+		hasValidIPv4 := false
+		for _, addr := range addrs {
+			ip, _, err := net.ParseCIDR(addr.String())
+			if err != nil {
+				continue
+			}
+			if ip.To4() != nil {
+				hasValidIPv4 = true
+				hasNetwork = true
+				log.Debug().Msgf("Interface: %s, IPv4 Address: %s\n", iface.Name, ip.String())
+			}
+		}
+
+		// If no valid IPv4 is found, report the interface as inactive
+		if !hasValidIPv4 {
+			log.Debug().Msgf("Interface: %s has no valid IPv4 address.\n", iface.Name)
+		}
+	}
+	return hasNetwork
+}
+
+func PingDNS(nameServer string, hostname string) {
+	resolver := &net.Resolver{
+		PreferGo: true,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			return net.Dial(network, nameServer)
+		},
+	}
+	start := time.Now()
+	ips, err := resolver.LookupHost(context.Background(), hostname)
+	fmt.Printf("LookupHost took %v\n", time.Since(start))
+	if err != nil {
+		fmt.Println("Error:", err)
+	} else {
+		fmt.Println("IPs:", ips)
+	}
 }

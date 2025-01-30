@@ -9,21 +9,8 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
+	"upcheck"
 )
-
-type Target struct {
-	Name         string
-	Host         string
-	Port         int
-	IP           net.IP
-	Type         int
-	IsAlive      bool
-	Since        time.Time
-	CurrentError string
-	Attempts     int
-	Failures     int
-	Errors       map[string]int
-}
 
 func main() {
 	app := tview.NewApplication()
@@ -31,24 +18,22 @@ func main() {
 	// Mutex to safely update data
 	var mu sync.Mutex
 
-	// Sample data organized by sections
-	sections := map[string][]Target{
-		"Internet Hosts": {
-			{Name: "Google", Host: "google.com", Port: 80, IP: net.ParseIP("8.8.8.8"), IsAlive: true, Since: time.Now(), Attempts: 100, Failures: 2, Errors: map[string]int{"timeout": 1}},
-			{Name: "Cloudflare", Host: "cloudflare.com", Port: 443, IP: net.ParseIP("1.1.1.1"), IsAlive: true, Since: time.Now(), Attempts: 200, Failures: 5, Errors: map[string]int{"connection refused": 3}},
-		},
-		"Network Gateway": {
-			{Name: "Router", Host: "192.168.0.1", Port: 0, IP: net.ParseIP("192.168.0.1"), IsAlive: true, Since: time.Now(), Attempts: 50, Failures: 1, Errors: map[string]int{"latency": 1}},
-		},
-		"Internal Hosts": {
-			{Name: "Server 1", Host: "192.168.1.100", Port: 22, IP: net.ParseIP("192.168.1.100"), IsAlive: false, Since: time.Now(), Attempts: 30, Failures: 10, Errors: map[string]int{"SSH error": 5}},
-			{Name: "Server 2", Host: "192.168.1.101", Port: 22, IP: net.ParseIP("192.168.1.101"), IsAlive: true, Since: time.Now(), Attempts: 40, Failures: 0, Errors: map[string]int{}},
-		},
+	targets := []upcheck.Target{
+		{Name: "Google", Host: "google.com", Port: 80, IP: net.ParseIP("8.8.8.8"), IsAlive: true, Since: time.Now(), Attempts: 100, Failures: 2, Errors: map[string]int{"timeout": 1}},
+		{Name: "Cloudflare", Host: "cloudflare.com", Port: 443, IP: net.ParseIP("1.1.1.1"), IsAlive: true, Since: time.Now(), Attempts: 200, Failures: 5, Errors: map[string]int{"connection refused": 3}},
+		{Name: "Router", Host: "192.168.0.1", Port: 0, IP: net.ParseIP("192.168.0.1"), IsAlive: true, Since: time.Now(), Attempts: 50, Failures: 1, Errors: map[string]int{"latency": 1}},
+		{Name: "Server 1", Host: "192.168.1.100", Port: 22, IP: net.ParseIP("192.168.1.100"), IsAlive: false, Since: time.Now(), Attempts: 30, Failures: 10, Errors: map[string]int{"SSH error": 5}},
+		{Name: "Server 2", Host: "192.168.1.101", Port: 22, IP: net.ParseIP("192.168.1.101"), IsAlive: true, Since: time.Now(), Attempts: 40, Failures: 0, Errors: map[string]int{}},
 	}
-
+	// Sample data organized by sections
+	subnetTargets, gatewayTargets, internetTargets := upcheck.ClassifyTargets(targets)
+	sections := make(map[string][]*Target)
+	sections["Subnet"] = subnetTargets
+	sections["Gateway"] = gatewayTargets
+	sections["Internet"] = internetTargets
 	// Function to build a table from a section
 	buildTable := func(section []Target) *tview.Table {
-		table := tview.NewTable().SetBorders(false)
+		table := tview.NewTable().SetBorders(true)
 		for j, target := range section {
 			table.SetCell(j, 0, tview.NewTableCell(target.Name))
 			table.SetCell(j, 1, tview.NewTableCell(fmt.Sprintf("%t", target.IsAlive)))

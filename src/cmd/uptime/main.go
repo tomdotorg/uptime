@@ -88,7 +88,7 @@ func main() {
 func showTargets(runInfo RunInfo) {
 	fmt.Println(time.Now().Format("2006-01-02 15:04:05"))
 	fmt.Printf("\nNetwork Config:\n%v\n\n", *runInfo.networkInfo)
-	subnetTargets, gatewayTargets, externalTargets := classifyTargets(runInfo.checkTargets, runInfo.networkInfo)
+	subnetTargets, gatewayTargets, externalTargets := upcheck.ClassifyTargets(runInfo.checkTargets, runInfo.networkInfo)
 	upcheck.ShowStatuses("Subnet Targets", subnetTargets)
 	upcheck.ShowStatuses("Gateway Targets", gatewayTargets)
 	upcheck.ShowStatuses("External Targets", externalTargets)
@@ -117,8 +117,10 @@ func loopCheckAllTargets(runInfo *RunInfo, cmdChan chan string) {
 				fmt.Printf("New Local IP: %s\n", newNetInfo.Address)
 				fmt.Printf("New Netmask: %s\n", upcheck.IPMaskToString(newNetInfo.Mask))
 				fmt.Printf("New Default Gateway: %s\n", newNetInfo.GW)
-				log.Info().Msg("Reloading targets")
-				runInfo.checkTargets = upcheck.LoadTargets(*runInfo.configFilename)
+				log.Info().Msg("Ensuring default gateway is in targets")
+				if upcheck.FindDefaultGateway(runInfo.checkTargets, runInfo.networkInfo) == nil {
+					runInfo.checkTargets = upcheck.AddDefaultGatewayTarget(runInfo.checkTargets, runInfo.networkInfo)
+				}
 				showTargets(*runInfo)
 			}
 			log.Debug().Msg("Checking all targets")
@@ -127,31 +129,17 @@ func loopCheckAllTargets(runInfo *RunInfo, cmdChan chan string) {
 	}
 }
 
-// classify the targets as on this subnet, gateway, or external to this subnet
-func classifyTargets(targets []*upcheck.Target, netInfo *upcheck.NetworkInfo) (subnetTargets, gatewayTargets, externalTargets []*upcheck.Target) {
-	for _, target := range targets {
-		if target.IP.Equal(netInfo.GW) {
-			gatewayTargets = append(gatewayTargets, target)
-		} else if upcheck.IsInSameSubnet(netInfo.Address, netInfo.Mask, target.IP) {
-			subnetTargets = append(subnetTargets, target)
-		} else {
-			externalTargets = append(externalTargets, target)
-		}
-	}
-	return
-}
-
 func handleKeys(runInfo *RunInfo, cmdChan chan string) []*upcheck.Target {
 	// Check for key presses
 	if char, key, err := keyboard.GetKey(); err == nil {
 		if key == keyboard.KeyEsc || key == keyboard.KeyCtrlC {
 			fmt.Println("Exiting...")
+			cmdChan <- "stop"
 			os.Exit(0)
 		}
 		switch char {
 		case 'q', 'x':
 			fmt.Println("Exiting...")
-			cmdChan <- "stop"
 			os.Exit(0)
 		case 's':
 			showTargets(*runInfo)
