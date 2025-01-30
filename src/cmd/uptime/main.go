@@ -87,11 +87,19 @@ func main() {
 
 func showTargets(runInfo RunInfo) {
 	fmt.Println(time.Now().Format("2006-01-02 15:04:05"))
-	fmt.Printf("\nNetwork Config:\n%v\n\n", *runInfo.networkInfo)
-	subnetTargets, gatewayTargets, externalTargets := upcheck.ClassifyTargets(runInfo.checkTargets, runInfo.networkInfo)
-	upcheck.ShowStatuses("Subnet Targets", subnetTargets)
-	upcheck.ShowStatuses("Gateway Targets", gatewayTargets)
-	upcheck.ShowStatuses("External Targets", externalTargets)
+	if runInfo.networkInfo == nil {
+		fmt.Println("No network info available")
+	} else {
+		fmt.Printf("\nNetwork Config:\n%v\n\n", *runInfo.networkInfo)
+	}
+	subnetTargets, gatewayTargets, externalTargets, ok := upcheck.ClassifyTargets(runInfo.checkTargets, runInfo.networkInfo)
+	if ok {
+		upcheck.ShowStatuses("Subnet Targets", subnetTargets)
+		upcheck.ShowStatuses("Gateway Targets", gatewayTargets)
+		upcheck.ShowStatuses("External Targets", externalTargets)
+	} else {
+		upcheck.ShowStatuses("All Targets", runInfo.checkTargets)
+	}
 }
 
 func loopCheckAllTargets(runInfo *RunInfo, cmdChan chan string) {
@@ -107,20 +115,36 @@ func loopCheckAllTargets(runInfo *RunInfo, cmdChan chan string) {
 				return
 			}
 		case <-ticker.C:
+			// check for a network at all
+			if !upcheck.HasNetworkConnection() {
+				if runInfo.networkInfo != nil {
+					log.Warn().Msg("No network connection detected - skipping checks")
+					upcheck.MarkAllTargetsOffline(runInfo.checkTargets)
+				}
+				runInfo.networkInfo = nil
+				continue
+			} else {
+				if runInfo.networkInfo == nil {
+					runInfo.networkInfo = &upcheck.NetworkInfo{}
+				}
+			}
 			// check for a network change
 			newNetInfo, err := upcheck.GetNetworkInfo()
-			if err != nil {
-				log.Error().Err(err).Msg("Error getting network info after change")
+			if err != nil || runInfo.networkInfo == nil {
+				if runInfo.networkInfo != nil {
+					runInfo.networkInfo = nil
+					log.Error().Err(err).Msg("Error getting network info after change - we must be offline")
+				}
 			} else if !runInfo.networkInfo.Equals(newNetInfo) {
 				log.Warn().Msg("Network change detected")
 				runInfo.networkInfo = &newNetInfo
-				fmt.Printf("New Local IP: %s\n", newNetInfo.Address)
-				fmt.Printf("New Netmask: %s\n", upcheck.IPMaskToString(newNetInfo.Mask))
-				fmt.Printf("New Default Gateway: %s\n", newNetInfo.GW)
+				fmt.Printf("Network info: %v\n", newNetInfo)
 				log.Info().Msg("Ensuring default gateway is in targets")
 				if upcheck.FindDefaultGateway(runInfo.checkTargets, runInfo.networkInfo) == nil {
 					runInfo.checkTargets = upcheck.AddDefaultGatewayTarget(runInfo.checkTargets, runInfo.networkInfo)
 				}
+				log.Debug().Msg("Checking all targets")
+				upcheck.CheckAllTargets(runInfo.checkTargets)
 				showTargets(*runInfo)
 			}
 			log.Debug().Msg("Checking all targets")

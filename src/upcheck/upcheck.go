@@ -250,12 +250,13 @@ func LoadTargets(filename string) []*Target {
 	}
 	netInfo, err := GetNetworkInfo()
 	if err != nil {
-		log.Fatal().Msg("error getting network info")
-	}
-	defaultGWTarget := FindDefaultGateway(results, &netInfo)
-	if defaultGWTarget == nil {
-		log.Info().Msgf("Default gateway %s not in targets adding it", netInfo.GW)
-		results = AddDefaultGatewayTarget(results, &netInfo)
+		log.Warn().Msg("error getting network info so no default gw check")
+	} else {
+		defaultGWTarget := FindDefaultGateway(results, &netInfo)
+		if defaultGWTarget == nil {
+			log.Info().Msgf("Default gateway %s not in targets adding it", netInfo.GW)
+			results = AddDefaultGatewayTarget(results, &netInfo)
+		}
 	}
 	return results
 }
@@ -385,7 +386,12 @@ func isNodeAliveOnAnyPort(address string, ports []string) (port int, err error) 
 }
 
 // ClassifyTargets classify the targets as on this subnet, gateway, or external to this subnet
-func ClassifyTargets(targets []*Target, netInfo *NetworkInfo) (subnetTargets, gatewayTargets, externalTargets []*Target) {
+func ClassifyTargets(targets []*Target, netInfo *NetworkInfo) (subnetTargets, gatewayTargets, externalTargets []*Target, ok bool) {
+	if netInfo == nil {
+		log.Warn().Msg("can't classify targets with no network")
+		ok = false
+		return
+	}
 	for _, target := range targets {
 		if target.IP.Equal(netInfo.GW) {
 			gatewayTargets = append(gatewayTargets, target)
@@ -395,5 +401,12 @@ func ClassifyTargets(targets []*Target, netInfo *NetworkInfo) (subnetTargets, ga
 			externalTargets = append(externalTargets, target)
 		}
 	}
+	ok = true
 	return
+}
+
+func MarkAllTargetsOffline(targets []*Target) {
+	for _, target := range targets {
+		target.IsAlive = false
+	}
 }
