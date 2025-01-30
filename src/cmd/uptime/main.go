@@ -182,16 +182,25 @@ func handleKeys(runInfo *RunInfo, cmdChan chan string) []*upcheck.Target {
 			fmt.Println("Resetting all stats...")
 			upcheck.ResetAllStats(runInfo.checkTargets)
 		case '?':
-			fmt.Println("Commands:")
-			fmt.Println("  q or x: quit")
-			fmt.Println("  s: show targets")
-			fmt.Println("  p: pause/resume")
-			fmt.Println("  r: reset all stats")
+			showHelp()
 		default:
 			fmt.Printf("You pressed: %q\n", char)
 		}
 	}
 	return runInfo.checkTargets
+}
+
+func showHelp() {
+	fmt.Println("upcheck - a simple network uptime checker")
+	fmt.Println("flags:" +
+		"\n  -f <filename> : Filename containing the targets" +
+		"\n  -i <interval> : Number of seconds between target checks")
+	fmt.Println("Commands:")
+	fmt.Println("  q or x: quit")
+	fmt.Println("  s: show targets")
+	fmt.Println("  p: pause/resume")
+	fmt.Println("  r: reset all stats")
+	fmt.Println("   input file format (one per line): 8.8.4.4:53")
 }
 
 func initLogs() {

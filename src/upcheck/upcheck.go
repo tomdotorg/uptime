@@ -208,46 +208,49 @@ func LoadTargets(filename string) []*Target {
 	if err != nil {
 		log.Warn().Err(err).Msgf("error opening %s", filename)
 		log.Info().Msg("using defaults")
-		return defaultTargets
-	}
-	defer func(file *os.File) {
-		err := file.Close()
-		if err != nil {
-			log.Fatal().Err(err).Msgf("error closing %s", filename)
-		}
-	}(file)
+		results = defaultTargets
+	} else {
 
-	// Read each line from the file
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if !strings.HasPrefix(line, "#") {
-			host, ip, port, err := parseHostPortType(line)
+		defer func(file *os.File) {
+			err := file.Close()
 			if err != nil {
-				log.Warn().Msgf("invalid line: %s - skipping", line)
-			} else {
-				// Add the validated host:port to the results array
-				rec := &Target{
-					Name:     line,
-					Host:     host,
-					IP:       ip,
-					Port:     port,
-					Attempts: 0,
-					Failures: 0,
-					IsAlive:  true,
-					Since:    time.Time{},
-					Errors:   make(map[string]int),
+				log.Fatal().Err(err).Msgf("error closing %s", filename)
+			}
+		}(file)
+
+		// Read each line from the file
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if !strings.HasPrefix(line, "#") {
+				host, ip, port, err := parseHostPortType(line)
+				if err != nil {
+					log.Warn().Msgf("invalid line: %s - skipping", line)
+				} else {
+					// Add the validated host:port to the results array
+					rec := &Target{
+						Name:     line,
+						Host:     host,
+						IP:       ip,
+						Port:     port,
+						Attempts: 0,
+						Failures: 0,
+						IsAlive:  true,
+						Since:    time.Time{},
+						Errors:   make(map[string]int),
+					}
+					rec.Since = time.Now()
+					results = append(results, rec)
+					log.Debug().Msgf("added %v", rec)
 				}
-				rec.Since = time.Now()
-				results = append(results, rec)
-				log.Debug().Msgf("added %v", rec)
 			}
 		}
+		// Check for any scanner errors
+		if err := scanner.Err(); err != nil {
+			log.Fatal().Err(err).Msgf("error reading %s", filename)
+		}
 	}
-	// Check for any scanner errors
-	if err := scanner.Err(); err != nil {
-		log.Fatal().Err(err).Msgf("error reading %s", filename)
-	}
+
 	netInfo, err := GetNetworkInfo()
 	if err != nil {
 		log.Warn().Msg("error getting network info so no default gw check")
