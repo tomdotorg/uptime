@@ -257,7 +257,7 @@ func LoadTargets(filename string) []*Target {
 	} else {
 		defaultGWTarget := FindDefaultGateway(results, &netInfo)
 		if defaultGWTarget == nil {
-			log.Info().Msgf("Default gateway %s not in targets adding it", netInfo.GW)
+			fmt.Printf("\nNote: default gateway %s not in targets adding it\n", netInfo.GW)
 			results = AddDefaultGatewayTarget(results, &netInfo)
 		}
 	}

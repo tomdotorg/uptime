@@ -58,14 +58,11 @@ func main() {
 		log.Fatal().Err(err).Msg("Error getting network info")
 	} else {
 		runInfo.networkInfo = &netInfo
-		fmt.Printf("Local IP: %s\n", netInfo.Address)
-		fmt.Printf("Netmask: %s\n", upcheck.IPMaskToString(netInfo.Mask))
-		fmt.Printf("Default Gateway: %s\n", netInfo.GW)
-		fmt.Println()
+		fmt.Printf("Network Info:\n%v\n", netInfo)
 	}
 
 	runInfo.checkTargets = upcheck.LoadTargets(*runInfo.configFilename)
-	showTargets(runInfo)
+	fmt.Println("Checking all targets (s key for status)...")
 
 	// Initialize keyboard listener
 	if err := keyboard.Open(); err != nil {
