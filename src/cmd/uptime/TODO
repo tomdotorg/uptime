@@ -1,0 +1,9 @@
+hot reload config w/out network change
+concurrent checks
+change interval on the fly
+show uptime and maybe more info in the header
+for just hosts, try 80, 443, 22, 53?
+add actual port connected successfully in target data structure for subsequent checks
+detect dups in config
+
+terminalize it like watch or top
