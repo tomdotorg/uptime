@@ -77,8 +77,8 @@ func main() {
 
 	cmdChan := make(chan string)
 	go loopCheckAllTargets(&runInfo, cmdChan)
-	for {
-		handleKeys(&runInfo, cmdChan)
+	for keepGoing := handleKeys(&runInfo, cmdChan); keepGoing; {
+		keepGoing = handleKeys(&runInfo, cmdChan)
 	}
 }
 
@@ -150,21 +150,20 @@ func loopCheckAllTargets(runInfo *RunInfo, cmdChan chan string) {
 	}
 }
 
-func handleKeys(runInfo *RunInfo, cmdChan chan string) []*upcheck.Target {
+func handleKeys(runInfo *RunInfo, cmdChan chan string) bool {
 	// Check for key presses
 	if char, key, err := keyboard.GetKey(); err == nil {
 		if key == keyboard.KeyEsc || key == keyboard.KeyCtrlC {
 			fmt.Println("Exiting...")
 			cmdChan <- "stop"
-			os.Exit(0)
+			return false
 		}
 		switch char {
 		case 'q', 'x':
 			fmt.Println("Exiting...")
-			os.Exit(0)
+			return false
 		case 's':
 			showTargets(*runInfo)
-			break
 		case 'p':
 			if *runInfo.paused {
 				fmt.Println("Resuming...")
@@ -184,7 +183,7 @@ func handleKeys(runInfo *RunInfo, cmdChan chan string) []*upcheck.Target {
 			fmt.Printf("You pressed: %q\n", char)
 		}
 	}
-	return runInfo.checkTargets
+	return true
 }
 
 func showHelp() {
