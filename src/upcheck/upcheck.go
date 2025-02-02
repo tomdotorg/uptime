@@ -10,15 +10,16 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
+	
 	"github.com/rs/zerolog/log"
 )
 
 type CheckInfo struct {
-	isUp        bool
-	hostPort    string
-	elapsedTime time.Duration
-	err         error
+	isUp    bool
+	host    string
+	port    int
+	latency time.Duration
+	err     error
 }
 
 type Target struct {
@@ -107,29 +108,30 @@ func isHostListening(host string, port int) (checkInfo CheckInfo, err error) {
 	address := net.JoinHostPort(host, strconv.Itoa(port))
 	start := time.Now()
 	conn, err := net.DialTimeout("tcp", address, 2*time.Second)
-	checkInfo.elapsedTime = time.Now().Sub(start)
-	checkInfo.hostPort = address
+	checkInfo.latency = time.Now().Sub(start)
+	checkInfo.host = address
+	checkInfo.port = port
 	checkInfo.isUp = true
 	if conn != nil {
 		defer func(conn net.Conn) {
 			connErr := conn.Close()
 			if connErr != nil {
-				log.Fatal().Err(err).Msgf("error closing connection: %s", err)
+				log.Error().Err(err).Msgf("error closing connection: %s", err)
 			}
 		}(conn)
 	}
-
+	
 	if err != nil {
 		if isMemoryError(err) {
 			log.Debug().Msgf("memory error connecting to %s : %s", host, err)
 			printMemUsage()
 			// for now, ignore memory errors TODO: handle this better
-			return CheckInfo{true, address, checkInfo.elapsedTime, nil}, nil
+			return CheckInfo{true, address, port, checkInfo.latency, nil}, nil
 		}
-		return CheckInfo{false, address, checkInfo.elapsedTime, nil}, err
+		return CheckInfo{false, address, port, checkInfo.latency, nil}, err
 	}
 	// if we get here, the connection was successful
-	return CheckInfo{true, address, checkInfo.elapsedTime, nil}, nil
+	return CheckInfo{true, address, port, checkInfo.latency, nil}, nil
 }
 
 // FindDefaultGateway returns the Target that matches the default gateway from the NetInfo struct
@@ -170,11 +172,11 @@ func AddDefaultGatewayTarget(targets []*Target, netInfo *NetworkInfo) []*Target 
 		Failures:    0,
 		IsAlive:     true,
 		Since:       time.Time{},
-		LastLatency: upCheckInfo.elapsedTime,
+		LastLatency: upCheckInfo.latency,
 		Errors:      make(map[string]int),
 	}
 	rec.Since = time.Now()
-	rec.TotalLatency += upCheckInfo.elapsedTime
+	rec.TotalLatency += upCheckInfo.latency
 	targets = append(targets, rec)
 	log.Debug().Msgf("added %v", rec)
 	return targets
@@ -202,7 +204,7 @@ func AddTarget(targets []*Target, name string, host string, port int) []*Target 
 
 func LoadTargets(filename string) []*Target {
 	results := make([]*Target, 0)
-
+	
 	// Open the file
 	file, err := os.Open(filename)
 	if err != nil {
@@ -210,14 +212,14 @@ func LoadTargets(filename string) []*Target {
 		log.Info().Msg("using defaults")
 		results = defaultTargets
 	} else {
-
+		
 		defer func(file *os.File) {
 			err := file.Close()
 			if err != nil {
 				log.Fatal().Err(err).Msgf("error closing %s", filename)
 			}
 		}(file)
-
+		
 		// Read each line from the file
 		scanner := bufio.NewScanner(file)
 		for scanner.Scan() {
@@ -250,14 +252,14 @@ func LoadTargets(filename string) []*Target {
 			log.Fatal().Err(err).Msgf("error reading %s", filename)
 		}
 	}
-
+	
 	netInfo, err := GetNetworkInfo()
 	if err != nil {
 		log.Warn().Msg("error getting network info so no default gw check")
 	} else {
 		defaultGWTarget := FindDefaultGateway(results, &netInfo)
 		if defaultGWTarget == nil {
-			fmt.Printf("\nNote: default gateway %s not in targets adding it\n", netInfo.GW)
+			log.Debug().Msgf("default gateway %s not in targets adding it\n", netInfo.GW)
 			results = AddDefaultGatewayTarget(results, &netInfo)
 		}
 	}
@@ -273,8 +275,8 @@ func CheckAllTargets(targets []*Target) {
 			target.Errors[err.Error()]++
 		}
 		if upCheckInfo.isUp {
-			target.LastLatency = upCheckInfo.elapsedTime
-			target.TotalLatency += upCheckInfo.elapsedTime
+			target.LastLatency = upCheckInfo.latency
+			target.TotalLatency += upCheckInfo.latency
 			if !target.IsAlive {
 				target.IsAlive = true
 				target.CurrentError = ""
@@ -317,9 +319,9 @@ func (t Target) String() string {
 	} else {
 		alive = "UP"
 	}
-
+	
 	uptime := time.Now().Sub(t.Since).Round(time.Second)
-
+	
 	errorStr := t.CurrentError
 	if errorStr == "" { // no current error, so count the errors
 		log.Debug().Msgf("no current error, so count the errors")
@@ -336,12 +338,12 @@ func (t Target) String() string {
 	} else {
 		avgLatency = strconv.FormatInt(t.TotalLatency.Milliseconds()/int64(t.Attempts-t.Failures), 10)
 	}
-
+	
 	uptimeAvg := "NaN"
 	if t.Attempts > 0 {
 		uptimeAvg = fmt.Sprintf("%6.02f%%", float32(t.Attempts-t.Failures)/float32(t.Attempts)*100.0)
 	}
-
+	
 	return fmt.Sprintf("%-20s - %-4s %dms (avg %sms) %v %s %d/%d (%s)", t.Name, alive, t.LastLatency.Milliseconds(), avgLatency, uptime, uptimeAvg, t.Attempts-t.Failures, t.Attempts, errorStr)
 }
 
@@ -360,18 +362,6 @@ func resetStats(target *Target) {
 	target.CurrentError = ""
 }
 
-func ShowStatus(target Target) {
-	fmt.Printf("%+v\n", target.String())
-}
-
-func ShowStatuses(heading string, targets []*Target) {
-	fmt.Println(heading)
-	for _, target := range targets {
-		ShowStatus(*target)
-	}
-	fmt.Println()
-}
-
 func isNodeAliveOnAnyPort(address string, ports []string) (port int, err error) {
 	for _, port := range ports {
 		target := net.JoinHostPort(address, port)
@@ -381,7 +371,7 @@ func isNodeAliveOnAnyPort(address string, ports []string) (port int, err error) 
 			// this is fine because the loop will exit after the first successful connection
 			//goland:noinspection ALL
 			defer conn.Close()
-			fmt.Printf("Node %s is reachable on port %s\n", address, port)
+			log.Debug().Msgf("Node %s is reachable on port %s\n", address, port)
 			return strconv.Atoi(port)
 		}
 	}

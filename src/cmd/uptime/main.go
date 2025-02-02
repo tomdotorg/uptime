@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os"
 	"time"
-
+	
 	"github.com/rivo/tview"
-
+	
 	"github.com/eiannone/keyboard"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -39,42 +39,42 @@ func main() {
 	*runInfo.paused = false
 	// Parse the command line flags
 	flag.Parse()
-
+	
 	// textView := tview.NewTextView().
 	// 	SetText("Hello, world!").
 	// 	SetTextAlign(tview.AlignCenter).
 	// 	SetDynamicColors(true)
-
+	
 	// if err := app.SetRoot(textView, true).Run(); err != nil {
 	// 	panic(err)
 	// }
 	// Define command line flags
-
+	
 	initLogs()
-
+	
 	netInfo, err := upcheck.GetNetworkInfo()
-
+	
 	if err != nil {
 		log.Fatal().Err(err).Msg("Error getting network info")
 	} else {
 		runInfo.networkInfo = &netInfo
 		fmt.Printf("Network Info:\n%v\n", netInfo)
 	}
-
+	
 	runInfo.checkTargets = upcheck.LoadTargets(*runInfo.configFilename)
 	fmt.Println("Checking all targets (s key for status)...")
-
+	
 	// Initialize keyboard listener
 	if err := keyboard.Open(); err != nil {
 		log.Fatal().Err(err).Msg("Failed to open keyboard")
 	}
-
+	
 	defer func() {
 		if err := keyboard.Close(); err != nil {
 			log.Fatal().Err(err).Msg("Failed to close keyboard")
 		}
 	}()
-
+	
 	cmdChan := make(chan string)
 	go loopCheckAllTargets(&runInfo, cmdChan)
 	for keepGoing := handleKeys(&runInfo, cmdChan); keepGoing; {
@@ -91,11 +91,14 @@ func showTargets(runInfo RunInfo) {
 	}
 	subnetTargets, gatewayTargets, externalTargets, ok := upcheck.ClassifyTargets(runInfo.checkTargets, runInfo.networkInfo)
 	if ok {
-		upcheck.ShowStatuses("Subnet Targets", subnetTargets)
-		upcheck.ShowStatuses("Gateway Targets", gatewayTargets)
-		upcheck.ShowStatuses("External Targets", externalTargets)
+		fmt.Println("")
+		ShowStatuses("Subnet Targets", subnetTargets)
+		fmt.Println("")
+		ShowStatuses("Gateway Targets", gatewayTargets)
+		fmt.Println("")
+		ShowStatuses("External Targets", externalTargets)
 	} else {
-		upcheck.ShowStatuses("All Targets", runInfo.checkTargets)
+		ShowStatuses("All Targets", runInfo.checkTargets)
 	}
 }
 
@@ -189,8 +192,8 @@ func handleKeys(runInfo *RunInfo, cmdChan chan string) bool {
 func showHelp() {
 	fmt.Println("upcheck - a simple network uptime checker")
 	fmt.Println("flags:" +
-		"\n  -f <filename> : Filename containing the targets" +
-		"\n  -i <interval> : Number of seconds between target checks")
+			"\n  -f <filename> : Filename containing the targets" +
+			"\n  -i <interval> : Number of seconds between target checks")
 	fmt.Println("Commands:")
 	fmt.Println("  q or x: quit")
 	fmt.Println("  s: show targets")
@@ -203,19 +206,31 @@ func initLogs() {
 	// initialize the logger
 	zerolog.ErrorStackMarshaler = pkgerrors.MarshalStack
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
-
+	
 	// if os.Getenv("CONSOLE") != "" || 1 == 1 {
 	//	log.Info().Msg("logging to console")
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339})
-
+	
 	// } else {
 	//	log.Output(os.Stdout)
 	// }
-
+	
 	if os.Getenv("DEBUG") != "" {
 		zerolog.SetGlobalLevel(zerolog.TraceLevel)
 		log.Info().Msg("enabling Trace level logging")
 	} else {
 		log.Info().Msg("enabling Info level logging")
+	}
+}
+
+func ShowStatus(target upcheck.Target) string {
+	return fmt.Sprintf("%+v", target.String())
+}
+
+func ShowStatuses(heading string, targets []*upcheck.Target) {
+	fmt.Println(heading)
+	fmt.Println("")
+	for _, target := range targets {
+		fmt.Println(ShowStatus(*target))
 	}
 }
