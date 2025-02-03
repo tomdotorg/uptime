@@ -129,15 +129,15 @@ func isHostListening(host string, port int) (checkInfo CheckInfo, err error) {
 			return CheckInfo{true, address, port, checkInfo.latency, nil}, nil
 		}
 		// try to ping it here as a last report
-		hostUpViaPing, pingErr := PingHost(host, 2)
-		if pingErr != nil {
-			log.Warn().Msgf("error pinging %s: %s", host, pingErr)
-		} else {
-			if hostUpViaPing {
-				log.Debug().Msgf("host %s is up via ping", host)
-				return CheckInfo{true, address, port, checkInfo.latency, nil}, nil
-			}
-		}
+		// hostUpViaPing, pingErr := PingHost(host, 2)
+		// if pingErr != nil {
+		// 	log.Warn().Msgf("error pinging %s: %s", host, pingErr)
+		// } else {
+		// 	if hostUpViaPing {
+		// 		log.Debug().Msgf("host %s is up via ping", host)
+		// 		return CheckInfo{true, address, port, checkInfo.latency, nil}, nil
+		// 	}
+		// }
 		return CheckInfo{false, address, port, checkInfo.latency, nil}, err
 	}
 	// if we get here, the connection was successful

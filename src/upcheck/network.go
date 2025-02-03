@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-ping/ping"
 	"github.com/jackpal/gateway"
 	"github.com/rs/zerolog/log"
 )
@@ -155,31 +154,6 @@ func getLinuxGateway() (net.IP, error) {
 		}
 	}
 	return gw, nil
-}
-
-func PingHost(host string, timeoutSecs int) (bool, error) {
-	pinger, err := ping.NewPinger(host)
-	if err != nil {
-		log.Warn().Msgf("Ping failed:", err)
-		return false, err
-	}
-	timer1 := time.NewTimer(time.Duration(timeoutSecs) * time.Second)
-	go func() {
-		<-timer1.C
-		pinger.Stop()
-	}()
-	pinger.Count = 1
-	pinger.SetPrivileged(true)
-	err = pinger.Run()
-	time.Sleep(2 * time.Second)
-	stats := pinger.Statistics()
-	if err == nil {
-		log.Debug().Msgf("Gateway is up: %v", stats)
-		return true, nil
-	} else {
-		log.Warn().Msgf("Gateway is down or unreachable: %v", err)
-		return false, err
-	}
 }
 
 func GetDefaultGateway() (net.IP, error) {
