@@ -176,7 +176,7 @@ func PingHost(host string, timeoutSecs int) (bool, error) {
 		log.Debug().Msgf("Gateway is up: %v", stats)
 		return true, nil
 	} else {
-		log.Warn().Msgf("Gateway is down or unreachable.")
+		log.Warn().Msgf("Gateway is down or unreachable: %v", err)
 		return false, err
 	}
 }
