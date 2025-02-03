@@ -171,6 +171,7 @@ func PingHost(host string, timeoutSecs int) (bool, error) {
 	pinger.Count = 1
 	pinger.SetPrivileged(true)
 	err = pinger.Run()
+	time.Sleep(2 * time.Second)
 	stats := pinger.Statistics()
 	if err == nil && stats.PacketsRecv > 0 {
 		log.Debug().Msgf("Gateway is up: %v", stats)
