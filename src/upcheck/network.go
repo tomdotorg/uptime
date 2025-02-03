@@ -169,6 +169,7 @@ func PingHost(host string, timeoutSecs int) (bool, error) {
 		pinger.Stop()
 	}()
 	pinger.Count = 1
+	pinger.SetPrivileged(true)
 	err = pinger.Run()
 	stats := pinger.Statistics()
 	if err == nil && stats.PacketsRecv > 0 {
