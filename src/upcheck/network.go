@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"time"
-	
+
 	"github.com/rs/zerolog/log"
 )
 
@@ -34,7 +34,7 @@ func GetNetworkInfo() (netInfo NetworkInfo, err error) {
 		log.Debug().Msg("No network connection detected")
 		return NetworkInfo{}, fmt.Errorf("no network connection")
 	}
-	
+
 	localIP, err := GetLocalIP()
 	if err != nil {
 		log.Warn().Msgf("Error getting local IP: %v", err)
@@ -103,7 +103,7 @@ func getDarwinGateway() (net.IP, error) {
 	// Use "route -n get default" command for macOS
 	gw := net.IP{}
 	gatewayFound := false
-	
+
 	cmd := exec.Command("route", "-n", "get", "default")
 	var out bytes.Buffer
 	cmd.Stdout = &out
@@ -111,7 +111,7 @@ func getDarwinGateway() (net.IP, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	output := out.String()
 	lines := strings.Split(output, "\n")
 	for _, line := range lines {
@@ -144,14 +144,14 @@ func getLinuxGateway() (net.IP, error) {
 	// 172.18.0.0      0.0.0.0         255.255.0.0     U     0      0        0 br-0f2b158226c8
 	// 192.168.0.0     0.0.0.0         255.255.255.0   U     0      0        0 enp6s0
 	// tom@hanalei:~$
-	cmd := exec.Command("route", "-n")
+	cmd := exec.Command("/sbin/route", "-n")
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	err := cmd.Run()
 	if err != nil {
 		return nil, err
 	}
-	
+
 	output := out.String()
 	lines := strings.Split(output, "\n")
 	for _, line := range lines {
@@ -200,25 +200,25 @@ func HasNetworkConnection() bool {
 		log.Warn().Msgf("Error fetching interfaces: %v\n", err)
 		return false
 	}
-	
+
 	for _, iface := range interfaces {
 		// Ignore interfaces that are down or loopback
 		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
 			continue
 		}
-		
+
 		// Check if the interface name indicates a tunnel (e.g., utun*)
 		if strings.HasPrefix(iface.Name, "utun") {
 			continue
 		}
-		
+
 		// Retrieve addresses associated with the interface
 		addrs, err := iface.Addrs()
 		if err != nil {
 			log.Warn().Msgf("Error fetching addresses for interface %s: %v\n", iface.Name, err)
 			continue
 		}
-		
+
 		// Look for valid IPv4 addresses
 		hasValidIPv4 := false
 		for _, addr := range addrs {
@@ -232,7 +232,7 @@ func HasNetworkConnection() bool {
 				log.Debug().Msgf("Interface: %s, IPv4 Address: %s\n", iface.Name, ip.String())
 			}
 		}
-		
+
 		// If no valid IPv4 is found, report the interface as inactive
 		if !hasValidIPv4 {
 			log.Debug().Msgf("Interface: %s has no valid IPv4 address.\n", iface.Name)
