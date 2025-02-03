@@ -18,7 +18,7 @@ func main() {
 	// Mutex to safely update data
 	var mu sync.Mutex
 
-	targets := []upcheck.Target{
+	targets := []*upcheck.Target{
 		{Name: "Google", Host: "google.com", Port: 80, IP: net.ParseIP("8.8.8.8"), IsAlive: true, Since: time.Now(), Attempts: 100, Failures: 2, Errors: map[string]int{"timeout": 1}},
 		{Name: "Cloudflare", Host: "cloudflare.com", Port: 443, IP: net.ParseIP("1.1.1.1"), IsAlive: true, Since: time.Now(), Attempts: 200, Failures: 5, Errors: map[string]int{"connection refused": 3}},
 		{Name: "Router", Host: "192.168.0.1", Port: 0, IP: net.ParseIP("192.168.0.1"), IsAlive: true, Since: time.Now(), Attempts: 50, Failures: 1, Errors: map[string]int{"latency": 1}},
@@ -26,13 +26,21 @@ func main() {
 		{Name: "Server 2", Host: "192.168.1.101", Port: 22, IP: net.ParseIP("192.168.1.101"), IsAlive: true, Since: time.Now(), Attempts: 40, Failures: 0, Errors: map[string]int{}},
 	}
 	// Sample data organized by sections
-	subnetTargets, gatewayTargets, internetTargets := upcheck.ClassifyTargets(targets)
-	sections := make(map[string][]*Target)
+
+	netInfo, err := upcheck.GetNetworkInfo()
+	if err != nil {
+		panic("Error getting network info")
+	}
+	subnetTargets, gatewayTargets, internetTargets, ok := upcheck.ClassifyTargets(targets, &netInfo)
+	if !ok {
+		panic("Error getting network info")
+	}
+	sections := make(map[string][]*upcheck.Target)
 	sections["Subnet"] = subnetTargets
 	sections["Gateway"] = gatewayTargets
 	sections["Internet"] = internetTargets
 	// Function to build a table from a section
-	buildTable := func(section []Target) *tview.Table {
+	buildTable := func(section []*upcheck.Target) *tview.Table {
 		table := tview.NewTable().SetBorders(true)
 		for j, target := range section {
 			table.SetCell(j, 0, tview.NewTableCell(target.Name))
@@ -83,7 +91,6 @@ func main() {
 		for {
 			time.Sleep(1 * time.Second)
 			updateSections()
-
 			// Rebuild tables dynamically
 			app.QueueUpdateDraw(func() {
 				mu.Lock()

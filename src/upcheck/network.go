@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackpal/gateway"
 	"github.com/rs/zerolog/log"
 )
 
@@ -28,29 +29,17 @@ func (n NetworkInfo) String() string {
 }
 
 func GetNetworkInfo() (netInfo NetworkInfo, err error) {
-	// let's see if we have a connection at all
-	hasNetwork := HasNetworkConnection()
-	if !hasNetwork {
-		log.Debug().Msg("No network connection detected")
-		return NetworkInfo{}, fmt.Errorf("no network connection")
-	}
-
-	localIP, err := GetLocalIP()
+	ifs, err := gateway.DiscoverInterface()
 	if err != nil {
-		log.Warn().Msgf("Error getting local IP: %v", err)
-		return NetworkInfo{}, err
+		log.Fatal().Msgf("Error getting interfaces: %v", err)
 	}
-	netmask, err := GetNetmask(localIP)
+	log.Debug().Msgf("interface: %v %s\n", ifs, net.IP(ifs.DefaultMask()).String())
+	gw, err := gateway.DiscoverGateway()
 	if err != nil {
-		log.Warn().Msgf("Error getting netmask: %v", err)
-		return NetworkInfo{localIP, nil, nil}, err
+		log.Fatal().Msgf("Error getting gateway: %v", err)
 	}
-	defaultGateway, err := GetDefaultGateway()
-	if err != nil {
-		log.Warn().Msgf("Error getting default gateway: %v", err)
-		return NetworkInfo{localIP, netmask, nil}, err
-	}
-	return NetworkInfo{localIP, netmask, defaultGateway}, nil
+	log.Debug().Msgf("Default Gateway: %v\n", gw)
+	return NetworkInfo{Address: ifs, Mask: ifs.DefaultMask(), GW: gw}, nil
 }
 
 func GetLocalIP() (net.IP, error) {
