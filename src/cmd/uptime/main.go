@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os"
 	"time"
-	
+
 	"github.com/rivo/tview"
-	
+
 	"github.com/eiannone/keyboard"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -34,47 +34,47 @@ func main() {
 		app:                tview.NewApplication(),
 		configFilename:     flag.String("f", CONFIGFILE, "Filename containing the targets"),
 		interval:           flag.Int("i", 2, "Number of seconds between target checks"),
-		paused:             new(bool),
+		paused:             new(bool), // zero value is false
 	}
-	*runInfo.paused = false
+
 	// Parse the command line flags
 	flag.Parse()
-	
+
 	// textView := tview.NewTextView().
 	// 	SetText("Hello, world!").
 	// 	SetTextAlign(tview.AlignCenter).
 	// 	SetDynamicColors(true)
-	
+
 	// if err := app.SetRoot(textView, true).Run(); err != nil {
 	// 	panic(err)
 	// }
 	// Define command line flags
-	
+
 	initLogs()
-	
+
 	netInfo, err := upcheck.GetNetworkInfo()
-	
+
 	if err != nil {
 		log.Fatal().Err(err).Msg("Error getting network info")
 	} else {
 		runInfo.networkInfo = &netInfo
 		fmt.Printf("Network Info:\n%v\n", netInfo)
 	}
-	
+
 	runInfo.checkTargets = upcheck.LoadTargets(*runInfo.configFilename)
-	fmt.Println("Checking all targets (s key for status)...")
-	
+	fmt.Println("Checking all targets (s key for status, ? for help)...")
+
 	// Initialize keyboard listener
 	if err := keyboard.Open(); err != nil {
 		log.Fatal().Err(err).Msg("Failed to open keyboard")
 	}
-	
+
 	defer func() {
 		if err := keyboard.Close(); err != nil {
 			log.Fatal().Err(err).Msg("Failed to close keyboard")
 		}
 	}()
-	
+
 	cmdChan := make(chan string)
 	go loopCheckAllTargets(&runInfo, cmdChan)
 	for keepGoing := handleKeys(&runInfo, cmdChan); keepGoing; {
@@ -105,6 +105,8 @@ func showTargets(runInfo RunInfo) {
 func loopCheckAllTargets(runInfo *RunInfo, cmdChan chan string) {
 	ticker := time.NewTicker(time.Duration(*runInfo.interval) * time.Second)
 	defer ticker.Stop()
+	upcheck.CheckAllTargets(runInfo.checkTargets) // initial check
+	showTargets(*runInfo)
 	for {
 		select {
 		case cmd := <-cmdChan:
@@ -190,31 +192,31 @@ func handleKeys(runInfo *RunInfo, cmdChan chan string) bool {
 }
 
 func showHelp() {
-	fmt.Println("upcheck - a simple network uptime checker")
+	fmt.Println("\nupcheck - a simple network uptime checker")
 	fmt.Println("flags:" +
-			"\n  -f <filename> : Filename containing the targets" +
-			"\n  -i <interval> : Number of seconds between target checks")
+		"\n  -f <filename> : Filename containing the targets" +
+		"\n  -i <interval> : Number of seconds between target checks")
 	fmt.Println("Commands:")
 	fmt.Println("  q or x: quit")
-	fmt.Println("  s: show targets")
-	fmt.Println("  p: pause/resume")
+	fmt.Println("  s: show all targets")
+	fmt.Println("  p: pause/resume checking")
 	fmt.Println("  r: reset all stats")
-	fmt.Println("   input file format (one per line): 8.8.4.4:53")
+	fmt.Println("\ninput file format (one per line):\n8.8.4.4:53\ngoogle.com:80\n192.168.1.1:80")
 }
 
 func initLogs() {
 	// initialize the logger
 	zerolog.ErrorStackMarshaler = pkgerrors.MarshalStack
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
-	
+
 	// if os.Getenv("CONSOLE") != "" || 1 == 1 {
 	//	log.Info().Msg("logging to console")
 	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339})
-	
+
 	// } else {
 	//	log.Output(os.Stdout)
 	// }
-	
+
 	if os.Getenv("DEBUG") != "" {
 		zerolog.SetGlobalLevel(zerolog.TraceLevel)
 		log.Info().Msg("enabling Trace level logging")
