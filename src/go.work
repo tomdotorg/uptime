@@ -4,5 +4,4 @@ use (
 	./cmd/tview
 	./cmd/uptime
 	./upcheck
-	cmd/netstuff
 )
