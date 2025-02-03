@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-ping/ping"
 	"github.com/jackpal/gateway"
 	"github.com/rs/zerolog/log"
 )
@@ -59,16 +60,16 @@ func GetLocalIP() (net.IP, error) {
 }
 
 func GetNetmask(ip net.IP) (net.IPMask, error) {
-	ifaces, err := net.Interfaces()
+	netInterfaces, err := net.Interfaces()
 	if err != nil {
 		return nil, fmt.Errorf("error getting network interfaces: %w", err)
 	}
-	for _, iface := range ifaces {
-		addrs, err := iface.Addrs()
+	for _, iface := range netInterfaces {
+		addresses, err := iface.Addrs()
 		if err != nil {
 			continue
 		}
-		for _, addr := range addrs {
+		for _, addr := range addresses {
 			ipnet, ok := addr.(*net.IPNet)
 			if ok && ipnet.IP.Equal(ip) {
 				return ipnet.Mask, nil
@@ -156,6 +157,29 @@ func getLinuxGateway() (net.IP, error) {
 	return gw, nil
 }
 
+func PingHost(host string, timeoutSecs int) (bool, error) {
+	pinger, err := ping.NewPinger(host)
+	if err != nil {
+		log.Warn().Msgf("Ping failed:", err)
+		return false, err
+	}
+	timer1 := time.NewTimer(time.Duration(timeoutSecs) * time.Second)
+	go func() {
+		<-timer1.C
+		pinger.Stop()
+	}()
+	pinger.Count = 1
+	err = pinger.Run()
+	stats := pinger.Statistics()
+	if err == nil && stats.PacketsRecv > 0 {
+		log.Debug().Msgf("Gateway is up: %v", stats)
+		return true, nil
+	} else {
+		log.Warn().Msgf("Gateway is down or unreachable.")
+		return false, err
+	}
+}
+
 func GetDefaultGateway() (net.IP, error) {
 	myOs := runtime.GOOS
 	log.Debug().Msgf("OS: %s", myOs)
@@ -230,7 +254,7 @@ func HasNetworkConnection() bool {
 	return hasNetwork
 }
 
-func PingDNS(nameServer string, hostname string) {
+func CheckViaDNS(nameServer string, hostname string) {
 	resolver := &net.Resolver{
 		PreferGo: true,
 		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {

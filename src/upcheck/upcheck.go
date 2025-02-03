@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	
+
 	"github.com/rs/zerolog/log"
 )
 
@@ -120,13 +120,23 @@ func isHostListening(host string, port int) (checkInfo CheckInfo, err error) {
 			}
 		}(conn)
 	}
-	
+
 	if err != nil {
 		if isMemoryError(err) {
 			log.Debug().Msgf("memory error connecting to %s : %s", host, err)
 			printMemUsage()
 			// for now, ignore memory errors TODO: handle this better
 			return CheckInfo{true, address, port, checkInfo.latency, nil}, nil
+		}
+		// try to ping it here as a last report
+		hostUpViaPing, pingErr := PingHost(host, 2)
+		if pingErr != nil {
+			log.Warn().Msgf("error pinging %s: %s", host, pingErr)
+		} else {
+			if hostUpViaPing {
+				log.Debug().Msgf("host %s is up via ping", host)
+				return CheckInfo{true, address, port, checkInfo.latency, nil}, nil
+			}
 		}
 		return CheckInfo{false, address, port, checkInfo.latency, nil}, err
 	}
@@ -204,7 +214,7 @@ func AddTarget(targets []*Target, name string, host string, port int) []*Target 
 
 func LoadTargets(filename string) []*Target {
 	results := make([]*Target, 0)
-	
+
 	// Open the file
 	file, err := os.Open(filename)
 	if err != nil {
@@ -212,14 +222,14 @@ func LoadTargets(filename string) []*Target {
 		log.Info().Msg("using defaults")
 		results = defaultTargets
 	} else {
-		
+
 		defer func(file *os.File) {
 			err := file.Close()
 			if err != nil {
 				log.Fatal().Err(err).Msgf("error closing %s", filename)
 			}
 		}(file)
-		
+
 		// Read each line from the file
 		scanner := bufio.NewScanner(file)
 		for scanner.Scan() {
@@ -252,7 +262,7 @@ func LoadTargets(filename string) []*Target {
 			log.Fatal().Err(err).Msgf("error reading %s", filename)
 		}
 	}
-	
+
 	netInfo, err := GetNetworkInfo()
 	if err != nil {
 		log.Warn().Msg("error getting network info so no default gw check")
@@ -319,9 +329,9 @@ func (t Target) String() string {
 	} else {
 		alive = "UP"
 	}
-	
+
 	uptime := time.Now().Sub(t.Since).Round(time.Second)
-	
+
 	errorStr := t.CurrentError
 	if errorStr == "" { // no current error, so count the errors
 		log.Debug().Msgf("no current error, so count the errors")
@@ -338,12 +348,12 @@ func (t Target) String() string {
 	} else {
 		avgLatency = strconv.FormatInt(t.TotalLatency.Milliseconds()/int64(t.Attempts-t.Failures), 10)
 	}
-	
+
 	uptimeAvg := "NaN"
 	if t.Attempts > 0 {
 		uptimeAvg = fmt.Sprintf("%6.02f%%", float32(t.Attempts-t.Failures)/float32(t.Attempts)*100.0)
 	}
-	
+
 	return fmt.Sprintf("%-20s - %-4s %dms (avg %sms) %v %s %d/%d (%s)", t.Name, alive, t.LastLatency.Milliseconds(), avgLatency, uptime, uptimeAvg, t.Attempts-t.Failures, t.Attempts, errorStr)
 }
 
