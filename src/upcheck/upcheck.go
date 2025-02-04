@@ -27,7 +27,6 @@ type Target struct {
 	Host         string
 	Port         int
 	IP           net.IP
-	Type         int
 	IsAlive      bool
 	Since        time.Time
 	CurrentError string
@@ -44,7 +43,6 @@ var defaultTargets = []*Target{
 		Host:     "8.8.8.8",
 		IP:       net.IP{8, 8, 8, 8},
 		Port:     53,
-		Type:     0,
 		IsAlive:  true,
 		Since:    time.Now(),
 		Attempts: 0,
@@ -56,7 +54,6 @@ var defaultTargets = []*Target{
 		Host:     "1.1.1.1",
 		IP:       net.IP{1, 1, 1, 1},
 		Port:     53,
-		Type:     0,
 		IsAlive:  true,
 		Since:    time.Now(),
 		Attempts: 0,
