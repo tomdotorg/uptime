@@ -68,7 +68,6 @@ func main() {
 	if err := keyboard.Open(); err != nil {
 		log.Fatal().Err(err).Msg("Failed to open keyboard")
 	}
-
 	defer func() {
 		if err := keyboard.Close(); err != nil {
 			log.Fatal().Err(err).Msg("Failed to close keyboard")
@@ -83,7 +82,8 @@ func main() {
 }
 
 func showTargets(runInfo RunInfo) {
-	fmt.Println(time.Now().Format("2006-01-02 15:04:05"))
+	fmt.Println("\n" + time.Now().Format("2006-01-02 15:04:05"))
+	fmt.Println("Up: ", time.Since(*runInfo.programStartedTime).Round(time.Second))
 	if runInfo.networkInfo == nil {
 		fmt.Println("No network info available")
 	} else {
