@@ -408,7 +408,7 @@ func ClassifyTargets(targets []*Target, netInfo *NetworkInfo) (subnetTargets, ga
 	return
 }
 
-func MarkAllTargetsOffline(targets []*Target) {
+func TargetsOffline(targets []*Target) {
 	for _, target := range targets {
 		target.IsAlive = false
 	}

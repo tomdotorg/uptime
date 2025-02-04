@@ -62,7 +62,6 @@ func main() {
 	}
 
 	runInfo.checkTargets = upcheck.LoadTargets(*runInfo.configFilename)
-	fmt.Println("Checking all targets (s key for status, ? for help)...")
 
 	// Initialize keyboard listener
 	if err := keyboard.Open(); err != nil {
@@ -73,6 +72,7 @@ func main() {
 			log.Fatal().Err(err).Msg("Failed to close keyboard")
 		}
 	}()
+	fmt.Println("Checking all targets (s key for status, ? for help)...")
 
 	cmdChan := make(chan string)
 	go loopCheckAllTargets(&runInfo, cmdChan)
@@ -121,7 +121,7 @@ func loopCheckAllTargets(runInfo *RunInfo, cmdChan chan string) {
 			if !upcheck.HasNetworkConnection() {
 				if runInfo.networkInfo != nil {
 					log.Warn().Msg("No network connection detected - skipping checks")
-					upcheck.MarkAllTargetsOffline(runInfo.checkTargets)
+					upcheck.TargetsOffline(runInfo.checkTargets)
 				}
 				runInfo.networkInfo = nil
 				continue
@@ -186,6 +186,7 @@ func handleKeys(runInfo *RunInfo, cmdChan chan string) bool {
 			showHelp()
 		default:
 			fmt.Printf("You pressed: %q\n", char)
+			fmt.Println("(s key for status, ? for help)...")
 		}
 	}
 	return true
