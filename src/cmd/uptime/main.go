@@ -39,17 +39,6 @@ func main() {
 
 	// Parse the command line flags
 	flag.Parse()
-
-	// textView := tview.NewTextView().
-	// 	SetText("Hello, world!").
-	// 	SetTextAlign(tview.AlignCenter).
-	// 	SetDynamicColors(true)
-
-	// if err := app.SetRoot(textView, true).Run(); err != nil {
-	// 	panic(err)
-	// }
-	// Define command line flags
-
 	initLogs()
 
 	netInfo, err := upcheck.GetNetworkInfo()
@@ -117,21 +106,12 @@ func loopCheckAllTargets(runInfo *RunInfo, cmdChan chan string) {
 				return
 			}
 		case <-ticker.C:
-			// check for a network at all
-			if _, err := upcheck.GetNetworkInfo(); err != nil {
-				if runInfo.networkInfo != nil {
-					log.Warn().Msg("No network connection detected - skipping checks")
-					upcheck.TargetsOffline(runInfo.checkTargets)
-				}
-				runInfo.networkInfo = nil
-				continue
-			}
-			// check for a network change
 			newNetInfo, err := upcheck.GetNetworkInfo()
 			if err != nil {
 				if runInfo.networkInfo != nil {
 					runInfo.networkInfo = nil
-					log.Error().Err(err).Msg("Error getting network info - we must be offline")
+					log.Warn().Msg("No network connection detected - skipping checks")
+					upcheck.TargetsOffline(runInfo.checkTargets)
 				}
 			} else {
 				if runInfo.networkInfo == nil || !runInfo.networkInfo.Equals(newNetInfo) {
@@ -140,12 +120,12 @@ func loopCheckAllTargets(runInfo *RunInfo, cmdChan chan string) {
 					fmt.Printf("Network info:\n%v\n", newNetInfo)
 					log.Info().Msg("Ensuring default gateway is in targets")
 					runInfo.checkTargets = upcheck.AddDefaultGatewayTarget(runInfo.checkTargets, runInfo.networkInfo)
-					upcheck.CheckAllTargets(runInfo.checkTargets)
-					showTargets(*runInfo)
+					// upcheck.CheckAllTargets(runInfo.checkTargets)
+					// showTargets(*runInfo)
 				}
+				log.Debug().Msg("Checking all targets")
+				upcheck.CheckAllTargets(runInfo.checkTargets)
 			}
-			log.Debug().Msg("Checking all targets")
-			upcheck.CheckAllTargets(runInfo.checkTargets)
 		}
 	}
 }

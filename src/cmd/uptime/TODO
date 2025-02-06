@@ -1,7 +1,6 @@
-hot reload config w/out network change
 concurrent checks - https://excalidraw.com/#json=W63y-8bVrZTzIdvXFgqtH,L-U6FSpp71sbBbYFp2mj7Q
+hot reload config w/out network change
 change interval on the fly
-show uptime and maybe more info in the header
 for just hosts, try 80, 443, 22, 53?
 detect dups in config
 
