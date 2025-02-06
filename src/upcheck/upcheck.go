@@ -14,14 +14,6 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-type CheckInfo struct {
-	isUp    bool
-	host    string
-	port    int
-	latency time.Duration
-	err     error
-}
-
 type Target struct {
 	Name         string
 	Host         string
@@ -120,21 +112,11 @@ func isHostListening(host string, port int) (checkInfo CheckInfo, err error) {
 
 	if err != nil {
 		if isMemoryError(err) {
-			log.Debug().Msgf("memory error connecting to %s : %s", host, err)
+			log.Info().Msgf("memory error connecting to %s : %s", host, err)
 			printMemUsage()
 			// for now, ignore memory errors TODO: handle this better
 			return CheckInfo{true, address, port, checkInfo.latency, nil}, nil
 		}
-		// try to ping it here as a last report
-		// hostUpViaPing, pingErr := PingHost(host, 2)
-		// if pingErr != nil {
-		// 	log.Warn().Msgf("error pinging %s: %s", host, pingErr)
-		// } else {
-		// 	if hostUpViaPing {
-		// 		log.Debug().Msgf("host %s is up via ping", host)
-		// 		return CheckInfo{true, address, port, checkInfo.latency, nil}, nil
-		// 	}
-		// }
 		return CheckInfo{false, address, port, checkInfo.latency, nil}, err
 	}
 	// if we get here, the connection was successful
@@ -153,10 +135,21 @@ func FindDefaultGateway(targets []*Target, defaultGW *NetworkInfo) *Target {
 
 // AddDefaultGatewayTarget adds the default gateway to the list of targets
 func AddDefaultGatewayTarget(targets []*Target, netInfo *NetworkInfo) []*Target {
+	if FindDefaultGateway(targets, netInfo) != nil { // already in the list
+		return targets
+	}
 	// see if the gw is listening on 53, else try 80, else quit trying
 	var foundListenPort = false
 	var listenPort = -1
-	ports := []int{53, 80}
+	const (
+		PortDNS      = 53
+		PortHTTP     = 80
+		PortHTTPS    = 443
+		PortSSH      = 22
+		PortHTTPAlt  = 8080
+		PortHTTPSAlt = 8443
+	)
+	ports := []int{PortDNS, PortHTTP, PortHTTPS, PortSSH, PortHTTPAlt, PortHTTPSAlt}
 	var upCheckInfo CheckInfo
 	for _, targetPort := range ports {
 		upCheckInfo, _ = isHostListening(netInfo.GW.String(), targetPort)
@@ -276,6 +269,8 @@ func LoadTargets(filename string) []*Target {
 func CheckAllTargets(targets []*Target) {
 	for _, target := range targets {
 		upCheckInfo, err := isHostListening(target.IP.String(), target.Port)
+		// TODO maybe this is thing that runs when a polling event is received?
+		// receive the checkInfo struct, find the target (by ip and port) and update it
 		target.Attempts++
 		if err != nil {
 			target.CurrentError = err.Error()
@@ -312,10 +307,10 @@ func printMemUsage() {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 	// For info on each, see: https://golang.org/pkg/runtime/#MemStats
-	log.Debug().Msgf("Alloc = %v MiB", bToMb(m.Alloc))
-	log.Debug().Msgf("\tTotalAlloc = %v MiB", bToMb(m.TotalAlloc))
-	log.Debug().Msgf("\tSys = %v MiB", bToMb(m.Sys))
-	log.Debug().Msgf("\tNumGC = %v\n", m.NumGC)
+	log.Info().Msgf("Alloc = %v MiB", bToMb(m.Alloc))
+	log.Info().Msgf("\tTotalAlloc = %v MiB", bToMb(m.TotalAlloc))
+	log.Info().Msgf("\tSys = %v MiB", bToMb(m.Sys))
+	log.Info().Msgf("\tNumGC = %v\n", m.NumGC)
 }
 
 func (t Target) String() string {
