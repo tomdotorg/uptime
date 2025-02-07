@@ -148,8 +148,9 @@ func AddDefaultGatewayTarget(targets []*Target, netInfo *NetworkInfo) []*Target 
 		PortSSH      = 22
 		PortHTTPAlt  = 8080
 		PortHTTPSAlt = 8443
+		PortNTP      = 123
 	)
-	ports := []int{PortDNS, PortHTTP, PortHTTPS, PortSSH, PortHTTPAlt, PortHTTPSAlt}
+	ports := []int{PortDNS, PortHTTP, PortHTTPS, PortSSH, PortHTTPAlt, PortHTTPSAlt, PortNTP}
 	var upCheckInfo CheckInfo
 	for _, targetPort := range ports {
 		upCheckInfo, _ = isHostListening(netInfo.GW.String(), targetPort)
