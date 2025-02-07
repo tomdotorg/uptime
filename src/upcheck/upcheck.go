@@ -266,37 +266,50 @@ func LoadTargets(filename string) []*Target {
 	return results
 }
 
+func findTarget(targets []*Target, host string, port int) *Target {
+	for _, target := range targets {
+		if target.Host == host && target.Port == port {
+			return target
+		}
+	}
+	return nil
+}
+
 func CheckAllTargets(targets []*Target) {
 	for _, target := range targets {
-		upCheckInfo, err := isHostListening(target.IP.String(), target.Port)
+		upCheckInfo, _ := isHostListening(target.IP.String(), target.Port)
 		// TODO maybe this is thing that runs when a polling event is received?
 		// receive the checkInfo struct, find the target (by ip and port) and update it
-		target.Attempts++
-		if err != nil {
-			target.CurrentError = err.Error()
-			target.Errors[err.Error()]++
-		}
-		if upCheckInfo.isUp {
-			target.LastLatency = upCheckInfo.latency
-			target.TotalLatency += upCheckInfo.latency
-			if !target.IsAlive {
-				target.IsAlive = true
-				target.CurrentError = ""
-				log.Info().Msgf("target %v is back up - was down for %s", target, time.Now().Sub(target.Since).Round(time.Second).String())
-				target.Since = time.Now()
-			}
-			target.IsAlive = true
-			log.Debug().Msgf("target %v is up", target)
-		} else {
-			target.Failures++
-			if target.IsAlive {
-				target.IsAlive = false
-				log.Info().Msgf("target %v is down - was up for %s (%s)", target, time.Now().Sub(target.Since).Round(time.Second).String(), target.CurrentError)
-				target.Since = time.Now()
-			}
-			target.IsAlive = false
-		}
+		updateTargetStats(target, upCheckInfo)
 	} // for
+}
+
+func updateTargetStats(target *Target, upCheckInfo CheckInfo) {
+	target.Attempts++
+	if upCheckInfo.err != nil {
+		target.CurrentError = upCheckInfo.err.Error()
+		target.Errors[upCheckInfo.err.Error()]++
+	}
+	if upCheckInfo.isUp {
+		target.LastLatency = upCheckInfo.latency
+		target.TotalLatency += upCheckInfo.latency
+		if !target.IsAlive {
+			target.IsAlive = true
+			target.CurrentError = ""
+			log.Info().Msgf("target %v is back up - was down for %s", target, time.Now().Sub(target.Since).Round(time.Second).String())
+			target.Since = time.Now()
+		}
+		target.IsAlive = true
+		log.Debug().Msgf("target %v is up", target)
+	} else {
+		target.Failures++
+		if target.IsAlive {
+			target.IsAlive = false
+			log.Info().Msgf("target %v is down - was up for %s (%s)", target, time.Now().Sub(target.Since).Round(time.Second).String(), target.CurrentError)
+			target.Since = time.Now()
+		}
+		target.IsAlive = false
+	}
 }
 
 func bToMb(b uint64) uint64 {

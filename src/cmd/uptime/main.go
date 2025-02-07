@@ -41,10 +41,8 @@ func main() {
 	flag.Parse()
 	initLogs()
 
-	netInfo, err := upcheck.GetNetworkInfo()
-
-	if err != nil {
-		log.Fatal().Err(err).Msg("Error getting network info")
+	if netInfo, err := upcheck.GetNetworkInfo(); err != nil {
+		log.Fatal().Err(err).Msg("Error getting network info - exiting")
 	} else {
 		runInfo.networkInfo = &netInfo
 		fmt.Printf("Network Info:\n%v\n", netInfo)
@@ -94,8 +92,8 @@ func showTargets(runInfo RunInfo) {
 func loopCheckAllTargets(runInfo *RunInfo, cmdChan chan string) {
 	ticker := time.NewTicker(time.Duration(*runInfo.interval) * time.Second)
 	defer ticker.Stop()
-	upcheck.CheckAllTargets(runInfo.checkTargets) // initial check
-	showTargets(*runInfo)
+	// upcheck.CheckAllTargets(runInfo.checkTargets) // initial check
+	// showTargets(*runInfo)
 	for {
 		select {
 		case cmd := <-cmdChan:
@@ -120,8 +118,7 @@ func loopCheckAllTargets(runInfo *RunInfo, cmdChan chan string) {
 					fmt.Printf("Network info:\n%v\n", newNetInfo)
 					log.Info().Msg("Ensuring default gateway is in targets")
 					runInfo.checkTargets = upcheck.AddDefaultGatewayTarget(runInfo.checkTargets, runInfo.networkInfo)
-					// upcheck.CheckAllTargets(runInfo.checkTargets)
-					// showTargets(*runInfo)
+					showTargets(*runInfo)
 				}
 				log.Debug().Msg("Checking all targets")
 				upcheck.CheckAllTargets(runInfo.checkTargets)
