@@ -2,13 +2,12 @@ package upcheck
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
 	"net"
 	"os"
-	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -27,6 +26,7 @@ type Target struct {
 	Attempts     int
 	Failures     int
 	Errors       map[string]int
+	mu           sync.Mutex
 }
 
 var defaultTargets = []*Target{
@@ -40,6 +40,7 @@ var defaultTargets = []*Target{
 		Attempts: 0,
 		Failures: 0,
 		Errors:   make(map[string]int),
+		mu:       sync.Mutex{},
 	},
 	{
 		Name:     "Cloudflare DNS",
@@ -51,6 +52,7 @@ var defaultTargets = []*Target{
 		Attempts: 0,
 		Failures: 0,
 		Errors:   make(map[string]int),
+		mu:       sync.Mutex{},
 	},
 }
 
@@ -83,15 +85,6 @@ func parseHostPortType(line string) (string, net.IP, int, error) {
 	return parts[0], host, port, nil
 }
 
-func isMemoryError(err error) bool {
-	var opErr *net.OpError
-	if errors.As(err, &opErr) && opErr.Op == "dial" && strings.Contains(opErr.Err.Error(), "cannot allocate memory") {
-		return true
-	} else {
-		return false
-	}
-}
-
 // isHostListening checks if a host is listening on a given port.
 func isHostListening(host string, port int) (checkInfo CheckInfo, err error) {
 	address := net.JoinHostPort(host, strconv.Itoa(port))
@@ -112,7 +105,7 @@ func isHostListening(host string, port int) (checkInfo CheckInfo, err error) {
 
 	if err != nil {
 		if isMemoryError(err) {
-			log.Info().Msgf("memory error connecting to %s : %s", host, err)
+			log.Debug().Msgf("memory error connecting to %s : %s", host, err)
 			printMemUsage()
 			// for now, ignore memory errors TODO: handle this better
 			return CheckInfo{true, address, port, checkInfo.latency, nil}, nil
@@ -175,6 +168,7 @@ func AddDefaultGatewayTarget(targets []*Target, netInfo *NetworkInfo) []*Target 
 		Since:       time.Time{},
 		LastLatency: upCheckInfo.latency,
 		Errors:      make(map[string]int),
+		mu:          sync.Mutex{},
 	}
 	rec.Since = time.Now()
 	rec.TotalLatency += upCheckInfo.latency
@@ -196,6 +190,7 @@ func AddTarget(targets []*Target, name string, host string, port int) []*Target 
 		IsAlive:  true,
 		Since:    time.Time{},
 		Errors:   make(map[string]int),
+		mu:       sync.Mutex{},
 	}
 	rec.Since = time.Now()
 	targets = append(targets, rec)
@@ -241,6 +236,7 @@ func LoadTargets(filename string) []*Target {
 						IsAlive:  true,
 						Since:    time.Time{},
 						Errors:   make(map[string]int),
+						mu:       sync.Mutex{},
 					}
 					rec.Since = time.Now()
 					results = append(results, rec)
@@ -282,10 +278,12 @@ func CheckAllTargets(targets []*Target) {
 		// TODO maybe this is thing that runs when a polling event is received?
 		// receive the checkInfo struct, find the target (by ip and port) and update it
 		updateTargetStats(target, upCheckInfo)
-	} // for
+	}
 }
 
 func updateTargetStats(target *Target, upCheckInfo CheckInfo) {
+	target.mu.Lock()
+	defer target.mu.Unlock()
 	target.Attempts++
 	if upCheckInfo.err != nil {
 		target.CurrentError = upCheckInfo.err.Error()
@@ -295,17 +293,14 @@ func updateTargetStats(target *Target, upCheckInfo CheckInfo) {
 		target.LastLatency = upCheckInfo.latency
 		target.TotalLatency += upCheckInfo.latency
 		if !target.IsAlive {
-			target.IsAlive = true
 			target.CurrentError = ""
 			log.Info().Msgf("target %v is back up - was down for %s", target, time.Now().Sub(target.Since).Round(time.Second).String())
 			target.Since = time.Now()
 		}
 		target.IsAlive = true
-		log.Debug().Msgf("target %v is up", target)
 	} else {
 		target.Failures++
 		if target.IsAlive {
-			target.IsAlive = false
 			log.Info().Msgf("target %v is down - was up for %s (%s)", target, time.Now().Sub(target.Since).Round(time.Second).String(), target.CurrentError)
 			target.Since = time.Now()
 		}
@@ -313,21 +308,7 @@ func updateTargetStats(target *Target, upCheckInfo CheckInfo) {
 	}
 }
 
-func bToMb(b uint64) uint64 {
-	return b / 1024 / 1024
-}
-
-func printMemUsage() {
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
-	// For info on each, see: https://golang.org/pkg/runtime/#MemStats
-	log.Info().Msgf("Alloc = %v MiB", bToMb(m.Alloc))
-	log.Info().Msgf("\tTotalAlloc = %v MiB", bToMb(m.TotalAlloc))
-	log.Info().Msgf("\tSys = %v MiB", bToMb(m.Sys))
-	log.Info().Msgf("\tNumGC = %v\n", m.NumGC)
-}
-
-func (t Target) String() string {
+func (t *Target) String() string {
 	// dt := t.Since.Format("15:04:05")
 	var alive string
 	if !t.IsAlive {
@@ -370,12 +351,16 @@ func ResetAllStats(targets []*Target) {
 }
 
 func resetStats(target *Target) {
+	target.mu.Lock()
 	target.IsAlive = true
 	target.Since = time.Now()
 	target.Attempts = 0
 	target.Failures = 0
 	target.Errors = make(map[string]int)
 	target.CurrentError = ""
+	target.LastLatency = 0
+	target.TotalLatency = 0
+	target.mu.Unlock()
 }
 
 func isNodeAliveOnAnyPort(address string, ports []string) (port int, err error) {
@@ -416,6 +401,8 @@ func ClassifyTargets(targets []*Target, netInfo *NetworkInfo) (subnetTargets, ga
 
 func TargetsOffline(targets []*Target) {
 	for _, target := range targets {
+		target.mu.Lock()
 		target.IsAlive = false
+		target.mu.Unlock()
 	}
 }

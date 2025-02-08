@@ -6,8 +6,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/rivo/tview"
-
 	"github.com/eiannone/keyboard"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -23,7 +21,7 @@ type RunInfo struct {
 	configFilename     *string
 	interval           *int
 	paused             *bool
-	app                *tview.Application
+	// app                *tview.Application
 }
 
 const CONFIGFILE = "hosts.txt"
@@ -31,10 +29,10 @@ const CONFIGFILE = "hosts.txt"
 func main() {
 	runInfo := RunInfo{
 		programStartedTime: func() *time.Time { t := time.Now(); return &t }(),
-		app:                tview.NewApplication(),
-		configFilename:     flag.String("f", CONFIGFILE, "Filename containing the targets"),
-		interval:           flag.Int("i", 2, "Number of seconds between target checks"),
-		paused:             new(bool), // zero value is false
+		// app:                tview.NewApplication(),
+		configFilename: flag.String("f", CONFIGFILE, "Filename containing the targets"),
+		interval:       flag.Int("i", 2, "Number of seconds between target checks"),
+		paused:         new(bool), // zero value is false
 	}
 
 	// Parse the command line flags
@@ -92,8 +90,6 @@ func showTargets(runInfo RunInfo) {
 func loopCheckAllTargets(runInfo *RunInfo, cmdChan chan string) {
 	ticker := time.NewTicker(time.Duration(*runInfo.interval) * time.Second)
 	defer ticker.Stop()
-	// upcheck.CheckAllTargets(runInfo.checkTargets) // initial check
-	// showTargets(*runInfo)
 	for {
 		select {
 		case cmd := <-cmdChan:
@@ -120,7 +116,6 @@ func loopCheckAllTargets(runInfo *RunInfo, cmdChan chan string) {
 					runInfo.checkTargets = upcheck.AddDefaultGatewayTarget(runInfo.checkTargets, runInfo.networkInfo)
 					showTargets(*runInfo)
 				}
-				log.Debug().Msg("Checking all targets")
 				upcheck.CheckAllTargets(runInfo.checkTargets)
 			}
 		}
@@ -198,7 +193,7 @@ func initLogs() {
 	}
 }
 
-func ShowStatus(target upcheck.Target) string {
+func ShowStatus(target *upcheck.Target) string {
 	return fmt.Sprintf("%+v", target.String())
 }
 
@@ -206,6 +201,6 @@ func ShowStatuses(heading string, targets []*upcheck.Target) {
 	fmt.Println(heading)
 	fmt.Println("")
 	for _, target := range targets {
-		fmt.Println(ShowStatus(*target))
+		fmt.Println(ShowStatus(target))
 	}
 }
