@@ -399,7 +399,7 @@ func ClassifyTargets(targets []*Target, netInfo *NetworkInfo) (subnetTargets, ga
 	return
 }
 
-func TargetsOffline(targets []*Target) {
+func MarkAllTargetsOffline(targets []*Target) {
 	for _, target := range targets {
 		target.mu.Lock()
 		target.IsAlive = false

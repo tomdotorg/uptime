@@ -105,7 +105,7 @@ func loopCheckAllTargets(runInfo *RunInfo, cmdChan chan string) {
 				if runInfo.networkInfo != nil {
 					runInfo.networkInfo = nil
 					log.Warn().Msg("No network connection detected - skipping checks")
-					upcheck.TargetsOffline(runInfo.checkTargets)
+					upcheck.MarkAllTargetsOffline(runInfo.checkTargets)
 				}
 			} else {
 				if runInfo.networkInfo == nil || !runInfo.networkInfo.Equals(newNetInfo) {
