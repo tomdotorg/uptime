@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/eiannone/keyboard"
@@ -14,14 +16,14 @@ import (
 )
 
 type RunInfo struct {
+	mu                 sync.RWMutex
 	programStartedTime *time.Time
-	networkInfo        *upcheck.NetworkInfo
-	configTime         *time.Time
+	configTime         time.Time // when this config was loaded
 	checkTargets       []*upcheck.Target
+	networkInfo        *upcheck.NetworkInfo
 	configFilename     *string
 	interval           *int
 	paused             *bool
-	// app                *tview.Application
 }
 
 const CONFIGFILE = "hosts.txt"
@@ -29,24 +31,14 @@ const CONFIGFILE = "hosts.txt"
 func main() {
 	runInfo := RunInfo{
 		programStartedTime: func() *time.Time { t := time.Now(); return &t }(),
-		// app:                tview.NewApplication(),
-		configFilename: flag.String("f", CONFIGFILE, "Filename containing the targets"),
-		interval:       flag.Int("i", 2, "Number of seconds between target checks"),
-		paused:         new(bool), // zero value is false
+		configFilename:     flag.String("f", CONFIGFILE, "Filename containing the targets"),
+		interval:           flag.Int("i", 2, "Number of seconds between target checks"),
+		paused:             new(bool), // zero value is false
 	}
 
 	// Parse the command line flags
 	flag.Parse()
 	initLogs()
-
-	if netInfo, err := upcheck.GetNetworkInfo(); err != nil {
-		log.Fatal().Err(err).Msg("Error getting network info - exiting")
-	} else {
-		runInfo.networkInfo = &netInfo
-		fmt.Printf("Network Info:\n%v\n", netInfo)
-	}
-
-	runInfo.checkTargets = upcheck.LoadTargets(*runInfo.configFilename)
 
 	// Initialize keyboard listener
 	if err := keyboard.Open(); err != nil {
@@ -57,17 +49,102 @@ func main() {
 			log.Fatal().Err(err).Msg("Failed to close keyboard")
 		}
 	}()
+
+	runInfo.checkTargets = upcheck.LoadTargets(*runInfo.configFilename)
+	runInfo.configTime = time.Now()
+
 	fmt.Println("Checking all targets (s key for status, ? for help)...")
 
-	cmdChan := make(chan string)
-	go loopCheckAllTargets(&runInfo, cmdChan)
-	for keepGoing := handleKeys(&runInfo, cmdChan); keepGoing; {
-		keepGoing = handleKeys(&runInfo, cmdChan)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// to here, we are in one goroutine.
+
+	cmdChan := make(chan upcheck.ControlSignal)
+	checks := make(chan upcheck.CheckInfo, 100)
+
+	go listenForCheckInfo(ctx, runInfo.checkTargets, checks)
+
+	currentNetInfo, err := upcheck.GetNetworkInfo()
+	if err != nil {
+		log.Fatal().Msg("Error getting network info - must be down")
+		cancel()
+	}
+
+	// fire off a goroutine for each target
+	checkAllTargets(ctx, runInfo.checkTargets, *runInfo.interval, cmdChan, checks)
+
+	for keepGoing := true; keepGoing; {
+		newNetInfo, err := upcheck.GetNetworkInfo()
+		if err != nil { // network is down
+			log.Warn().Msg("Error getting network info - must be down - stopping checks")
+			currentNetInfo = upcheck.NetworkInfo{}
+			cmdChan <- upcheck.PAUSE
+		} else { // network is valid
+			// if it has changed, make sure we have the default gw in the target list
+			if !newNetInfo.Equals(currentNetInfo) {
+				currentNetInfo = newNetInfo
+				log.Info().Msgf("Network changed. Now %v", newNetInfo)
+				checkTargets, gw := upcheck.AddDefaultGatewayTarget(runInfo.checkTargets, &newNetInfo)
+				runInfo.mu.Lock()
+				runInfo.checkTargets = checkTargets
+				runInfo.mu.Unlock()
+				if gw != nil {
+					log.Info().Msgf("added default gw: %v", currentNetInfo.GW)
+					go upcheck.PeriodicallyCheckHost(gw.Host, gw.Port, *runInfo.interval, ctx, cmdChan, checks)
+
+				}
+			}
+			if !*runInfo.paused {
+				cmdChan <- upcheck.RESUME
+			}
+		}
+		// do the network check here?
+		keepGoing = handleKeys(ctx, &runInfo, cmdChan, checks, cancel)
+	}
+	log.Info().Msg("keepGoing is false. calling cancel()")
+	cancel()
+}
+
+func checkAllTargets(ctx context.Context, targets []*upcheck.Target, interval int, cmdChan chan upcheck.ControlSignal, checkChan chan upcheck.CheckInfo) {
+	for _, target := range targets {
+		go upcheck.PeriodicallyCheckHost(target.Host, target.Port, interval, ctx, cmdChan, checkChan)
 	}
 }
 
-func showTargets(runInfo RunInfo) {
+/*
+listenForCheckInfo listens for incoming CheckInfo data from a channel and updates the corresponding
+Target in the RunInfo's checkTargets slice. It logs the receipt of valid CheckInfo and updates the
+target's status. If the CheckInfo corresponds to an unknown target, a warning is logged.
+
+Parameters:
+- runInfo: A pointer to RunInfo containing the application's runtime information and target list.
+- checks: A receive-only channel of CheckInfo from which the function reads check information.
+
+The function uses synchronization mechanisms to ensure thread-safe updates to the target data.
+*/
+func listenForCheckInfo(ctx context.Context, checkTargets []*upcheck.Target, checks <-chan upcheck.CheckInfo) {
+	log.Info().Msg("Listening for checkInfo")
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info().Msg("Context canceled, stopping listenForCheckInfo")
+			return
+		case checkInfo := <-checks:
+			target := upcheck.FindTarget(checkTargets, checkInfo.Host, checkInfo.Port)
+			if target != nil {
+				log.Debug().Msgf("Received valid checkInfo for target: %s:%d", target.Host, target.Port)
+				target.Update(checkInfo)
+			} else {
+				log.Warn().Msgf("Received checkInfo for unknown target: %s:%d", checkInfo.Host, checkInfo.Port)
+			}
+		}
+	}
+}
+
+func showTargets(runInfo *RunInfo) {
 	fmt.Println("\n" + time.Now().Format("2006-01-02 15:04:05"))
+	runInfo.mu.RLock()
+	defer runInfo.mu.RUnlock()
 	fmt.Println("Up: ", time.Since(*runInfo.programStartedTime).Round(time.Second))
 	if runInfo.networkInfo == nil {
 		fmt.Println("No network info available")
@@ -87,47 +164,10 @@ func showTargets(runInfo RunInfo) {
 	}
 }
 
-func loopCheckAllTargets(runInfo *RunInfo, cmdChan chan string) {
-	ticker := time.NewTicker(time.Duration(*runInfo.interval) * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case cmd := <-cmdChan:
-			switch cmd {
-			case "stop":
-				log.Debug().Msg("Stopping...")
-				ticker.Stop()
-				return
-			}
-		case <-ticker.C:
-			newNetInfo, err := upcheck.GetNetworkInfo()
-			if err != nil {
-				if runInfo.networkInfo != nil {
-					runInfo.networkInfo = nil
-					log.Warn().Msg("No network connection detected - skipping checks")
-					upcheck.MarkAllTargetsOffline(runInfo.checkTargets)
-				}
-			} else {
-				if runInfo.networkInfo == nil || !runInfo.networkInfo.Equals(newNetInfo) {
-					log.Warn().Msg("Network change detected")
-					runInfo.networkInfo = &newNetInfo
-					fmt.Printf("Network info:\n%v\n", newNetInfo)
-					log.Info().Msg("Ensuring default gateway is in targets")
-					runInfo.checkTargets = upcheck.AddDefaultGatewayTarget(runInfo.checkTargets, runInfo.networkInfo)
-					showTargets(*runInfo)
-				}
-				upcheck.CheckAllTargets(runInfo.checkTargets)
-			}
-		}
-	}
-}
-
-func handleKeys(runInfo *RunInfo, cmdChan chan string) bool {
-	// Check for key presses
+func handleKeys(ctx context.Context, runInfo *RunInfo, cmdChan <-chan upcheck.ControlSignal, checks chan<- upcheck.CheckInfo, cancel func()) bool {
 	if char, key, err := keyboard.GetKey(); err == nil {
 		if key == keyboard.KeyEsc || key == keyboard.KeyCtrlC {
 			fmt.Println("Exiting...")
-			cmdChan <- "stop"
 			return false
 		}
 		switch char {
@@ -135,15 +175,13 @@ func handleKeys(runInfo *RunInfo, cmdChan chan string) bool {
 			fmt.Println("Exiting...")
 			return false
 		case 's':
-			showTargets(*runInfo)
+			showTargets(runInfo)
 		case 'p':
 			if *runInfo.paused {
 				fmt.Println("Resuming...")
 				*runInfo.paused = false
-				go loopCheckAllTargets(runInfo, cmdChan)
 			} else {
 				fmt.Println("Pausing...")
-				cmdChan <- "stop"
 				*runInfo.paused = true
 			}
 		case 'r':

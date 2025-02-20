@@ -14,6 +14,7 @@ import (
 )
 
 type Target struct {
+	mu           sync.RWMutex
 	Name         string
 	Host         string
 	Port         int
@@ -26,7 +27,6 @@ type Target struct {
 	Attempts     int
 	Failures     int
 	Errors       map[string]int
-	mu           sync.Mutex
 }
 
 var defaultTargets = []*Target{
@@ -40,7 +40,6 @@ var defaultTargets = []*Target{
 		Attempts: 0,
 		Failures: 0,
 		Errors:   make(map[string]int),
-		mu:       sync.Mutex{},
 	},
 	{
 		Name:     "Cloudflare DNS",
@@ -52,7 +51,6 @@ var defaultTargets = []*Target{
 		Attempts: 0,
 		Failures: 0,
 		Errors:   make(map[string]int),
-		mu:       sync.Mutex{},
 	},
 }
 
@@ -87,13 +85,13 @@ func parseHostPortType(line string) (string, net.IP, int, error) {
 
 // isHostListening checks if a host is listening on a given port.
 func isHostListening(host string, port int) (checkInfo CheckInfo, err error) {
-	address := net.JoinHostPort(host, strconv.Itoa(port))
+	hostPort := net.JoinHostPort(host, strconv.Itoa(port))
 	start := time.Now()
-	conn, err := net.DialTimeout("tcp", address, 2*time.Second)
-	checkInfo.latency = time.Now().Sub(start)
-	checkInfo.host = address
-	checkInfo.port = port
-	checkInfo.isUp = true
+	conn, err := net.DialTimeout("tcp", hostPort, 2*time.Second)
+	checkInfo.Latency = time.Now().Sub(start)
+	checkInfo.Host = host
+	checkInfo.Port = port
+	checkInfo.IsUp = true
 	if conn != nil {
 		defer func(conn net.Conn) {
 			connErr := conn.Close()
@@ -108,12 +106,12 @@ func isHostListening(host string, port int) (checkInfo CheckInfo, err error) {
 			log.Debug().Msgf("memory error connecting to %s : %s", host, err)
 			printMemUsage()
 			// for now, ignore memory errors TODO: handle this better
-			return CheckInfo{true, address, port, checkInfo.latency, nil}, nil
+			return CheckInfo{true, host, port, checkInfo.Latency, nil}, nil
 		}
-		return CheckInfo{false, address, port, checkInfo.latency, nil}, err
+		return CheckInfo{false, host, port, checkInfo.Latency, err}, err
 	}
 	// if we get here, the connection was successful
-	return CheckInfo{true, address, port, checkInfo.latency, nil}, nil
+	return CheckInfo{true, host, port, checkInfo.Latency, nil}, nil
 }
 
 // FindDefaultGateway returns the Target that matches the default gateway from the NetInfo struct
@@ -127,9 +125,9 @@ func FindDefaultGateway(targets []*Target, defaultGW *NetworkInfo) *Target {
 }
 
 // AddDefaultGatewayTarget adds the default gateway to the list of targets
-func AddDefaultGatewayTarget(targets []*Target, netInfo *NetworkInfo) []*Target {
+func AddDefaultGatewayTarget(targets []*Target, netInfo *NetworkInfo) ([]*Target, *Target) {
 	if FindDefaultGateway(targets, netInfo) != nil { // already in the list
-		return targets
+		return targets, nil
 	}
 	// see if the gw is listening on 53, else try 80, else quit trying
 	var foundListenPort = false
@@ -147,7 +145,7 @@ func AddDefaultGatewayTarget(targets []*Target, netInfo *NetworkInfo) []*Target 
 	var upCheckInfo CheckInfo
 	for _, targetPort := range ports {
 		upCheckInfo, _ = isHostListening(netInfo.GW.String(), targetPort)
-		if upCheckInfo.isUp {
+		if upCheckInfo.IsUp {
 			foundListenPort = true
 			listenPort = targetPort
 			break
@@ -166,15 +164,14 @@ func AddDefaultGatewayTarget(targets []*Target, netInfo *NetworkInfo) []*Target 
 		Failures:    0,
 		IsAlive:     true,
 		Since:       time.Time{},
-		LastLatency: upCheckInfo.latency,
+		LastLatency: upCheckInfo.Latency,
 		Errors:      make(map[string]int),
-		mu:          sync.Mutex{},
 	}
 	rec.Since = time.Now()
-	rec.TotalLatency += upCheckInfo.latency
+	rec.TotalLatency += upCheckInfo.Latency
 	targets = append(targets, rec)
 	log.Debug().Msgf("added %v", rec)
-	return targets
+	return targets, rec
 }
 
 // AddTarget adds a target to the list of targets
@@ -190,7 +187,6 @@ func AddTarget(targets []*Target, name string, host string, port int) []*Target 
 		IsAlive:  true,
 		Since:    time.Time{},
 		Errors:   make(map[string]int),
-		mu:       sync.Mutex{},
 	}
 	rec.Since = time.Now()
 	targets = append(targets, rec)
@@ -236,7 +232,6 @@ func LoadTargets(filename string) []*Target {
 						IsAlive:  true,
 						Since:    time.Time{},
 						Errors:   make(map[string]int),
-						mu:       sync.Mutex{},
 					}
 					rec.Since = time.Now()
 					results = append(results, rec)
@@ -256,42 +251,35 @@ func LoadTargets(filename string) []*Target {
 	} else {
 		defaultGWTarget := FindDefaultGateway(results, &netInfo)
 		if defaultGWTarget == nil {
-			log.Debug().Msgf("default gateway %s not in targets adding it\n", netInfo.GW)
-			results = AddDefaultGatewayTarget(results, &netInfo)
+			results, _ = AddDefaultGatewayTarget(results, &netInfo)
 		}
 	}
 	return results
 }
 
-func findTarget(targets []*Target, host string, port int) *Target {
+func FindTarget(targets []*Target, host string, port int) *Target {
 	for _, target := range targets {
+		target.mu.RLock()
 		if target.Host == host && target.Port == port {
+			target.mu.RUnlock()
 			return target
 		}
+		target.mu.RUnlock()
 	}
 	return nil
-}
-
-func CheckAllTargets(targets []*Target) {
-	for _, target := range targets {
-		upCheckInfo, _ := isHostListening(target.IP.String(), target.Port)
-		// TODO maybe this is thing that runs when a polling event is received?
-		// receive the checkInfo struct, find the target (by ip and port) and update it
-		updateTargetStats(target, upCheckInfo)
-	}
 }
 
 func updateTargetStats(target *Target, upCheckInfo CheckInfo) {
 	target.mu.Lock()
 	defer target.mu.Unlock()
 	target.Attempts++
-	if upCheckInfo.err != nil {
-		target.CurrentError = upCheckInfo.err.Error()
-		target.Errors[upCheckInfo.err.Error()]++
+	if upCheckInfo.Err != nil {
+		target.CurrentError = upCheckInfo.Err.Error()
+		target.Errors[upCheckInfo.Err.Error()]++
 	}
-	if upCheckInfo.isUp {
-		target.LastLatency = upCheckInfo.latency
-		target.TotalLatency += upCheckInfo.latency
+	if upCheckInfo.IsUp {
+		target.LastLatency = upCheckInfo.Latency
+		target.TotalLatency += upCheckInfo.Latency
 		if !target.IsAlive {
 			target.CurrentError = ""
 			log.Info().Msgf("target %v is back up - was down for %s", target, time.Now().Sub(target.Since).Round(time.Second).String())
@@ -309,6 +297,8 @@ func updateTargetStats(target *Target, upCheckInfo CheckInfo) {
 }
 
 func (t *Target) String() string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
 	// dt := t.Since.Format("15:04:05")
 	var alive string
 	if !t.IsAlive {
@@ -344,6 +334,10 @@ func (t *Target) String() string {
 	return fmt.Sprintf("%-20s - %-4s %dms (avg %sms) %v %s %d/%d (%s)", t.Name, alive, t.LastLatency.Milliseconds(), avgLatency, uptime, uptimeAvg, t.Attempts-t.Failures, t.Attempts, errorStr)
 }
 
+func (t *Target) Update(info CheckInfo) {
+	updateTargetStats(t, info)
+}
+
 func ResetAllStats(targets []*Target) {
 	for _, target := range targets {
 		resetStats(target)
@@ -352,6 +346,7 @@ func ResetAllStats(targets []*Target) {
 
 func resetStats(target *Target) {
 	target.mu.Lock()
+	defer target.mu.Unlock()
 	target.IsAlive = true
 	target.Since = time.Now()
 	target.Attempts = 0
@@ -360,23 +355,6 @@ func resetStats(target *Target) {
 	target.CurrentError = ""
 	target.LastLatency = 0
 	target.TotalLatency = 0
-	target.mu.Unlock()
-}
-
-func isNodeAliveOnAnyPort(address string, ports []string) (port int, err error) {
-	for _, port := range ports {
-		target := net.JoinHostPort(address, port)
-		conn, err := net.DialTimeout("tcp", target, 2*time.Second)
-		if err == nil {
-			// the linter below is worried about the defer statement in the loop.
-			// this is fine because the loop will exit after the first successful connection
-			//goland:noinspection ALL
-			defer conn.Close()
-			log.Debug().Msgf("Node %s is reachable on port %s\n", address, port)
-			return strconv.Atoi(port)
-		}
-	}
-	return -1, nil
 }
 
 // ClassifyTargets classify the targets as on this subnet, gateway, or external to this subnet
