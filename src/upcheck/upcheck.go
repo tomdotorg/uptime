@@ -27,6 +27,7 @@ type Target struct {
 	Attempts     int
 	Failures     int
 	Errors       map[string]int
+	CmdChan      chan ControlSignal
 }
 
 var defaultTargets = []*Target{
@@ -40,6 +41,7 @@ var defaultTargets = []*Target{
 		Attempts: 0,
 		Failures: 0,
 		Errors:   make(map[string]int),
+		CmdChan:  make(chan ControlSignal),
 	},
 	{
 		Name:     "Cloudflare DNS",
@@ -51,6 +53,7 @@ var defaultTargets = []*Target{
 		Attempts: 0,
 		Failures: 0,
 		Errors:   make(map[string]int),
+		CmdChan:  make(chan ControlSignal),
 	},
 }
 
@@ -166,6 +169,7 @@ func AddDefaultGatewayTarget(targets []*Target, netInfo *NetworkInfo) ([]*Target
 		Since:       time.Time{},
 		LastLatency: upCheckInfo.Latency,
 		Errors:      make(map[string]int),
+		CmdChan:     make(chan ControlSignal),
 	}
 	rec.Since = time.Now()
 	rec.TotalLatency += upCheckInfo.Latency
@@ -187,6 +191,7 @@ func AddTarget(targets []*Target, name string, host string, port int) []*Target 
 		IsAlive:  true,
 		Since:    time.Time{},
 		Errors:   make(map[string]int),
+		CmdChan:  make(chan ControlSignal),
 	}
 	rec.Since = time.Now()
 	targets = append(targets, rec)
@@ -232,6 +237,7 @@ func LoadTargets(filename string) []*Target {
 						IsAlive:  true,
 						Since:    time.Time{},
 						Errors:   make(map[string]int),
+						CmdChan:  make(chan ControlSignal),
 					}
 					rec.Since = time.Now()
 					results = append(results, rec)
@@ -375,12 +381,4 @@ func ClassifyTargets(targets []*Target, netInfo *NetworkInfo) (subnetTargets, ga
 	}
 	ok = true
 	return
-}
-
-func MarkAllTargetsOffline(targets []*Target) {
-	for _, target := range targets {
-		target.mu.Lock()
-		target.IsAlive = false
-		target.mu.Unlock()
-	}
 }

@@ -59,7 +59,7 @@ func main() {
 
 	// to here, we are in one goroutine.
 
-	cmdChan := make(chan upcheck.ControlSignal)
+	// cmdChan := make(chan upcheck.ControlSignal)
 	checkChan := make(chan upcheck.CheckInfo, 100)
 
 	go listenForCheckInfo(ctx, runInfo.checkTargets, checkChan)
@@ -75,7 +75,7 @@ func main() {
 	runInfo.mu.Unlock()
 
 	// fire off a goroutine for each target
-	checkAllTargets(ctx, runInfo.checkTargets, *runInfo.interval, cmdChan, checkChan)
+	checkAllTargets(ctx, runInfo.checkTargets, *runInfo.interval, checkChan)
 
 	for keepGoing := true; keepGoing; {
 		newNetInfo, err := upcheck.GetNetworkInfo()
@@ -85,8 +85,7 @@ func main() {
 			runInfo.mu.Lock()
 			runInfo.networkInfo = nil
 			runInfo.mu.Unlock()
-
-			cmdChan <- upcheck.PAUSE
+			pauseAllTargets(runInfo.checkTargets)
 		} else { // network is valid
 			// if it has changed, make sure we have the default gw in the target list
 			if !newNetInfo.Equals(currentNetInfo) {
@@ -102,21 +101,20 @@ func main() {
 				runInfo.mu.Unlock()
 				if gw != nil {
 					log.Info().Msgf("added default gw: %v", currentNetInfo.GW)
-					go upcheck.PeriodicallyCheckHost(gw, *runInfo.interval, ctx, cmdChan, checkChan)
-
+					go upcheck.PeriodicallyCheckHost(gw, *runInfo.interval, ctx, gw.CmdChan, checkChan)
 				}
 			}
 		}
 		// do the network check here?
-		keepGoing = handleKeys(&runInfo, cmdChan, cancel)
+		keepGoing = handleKeys(&runInfo, cancel)
 	}
 	log.Info().Msg("keepGoing is false. calling cancel()")
 	cancel()
 }
 
-func checkAllTargets(ctx context.Context, targets []*upcheck.Target, interval int, cmdChan chan upcheck.ControlSignal, checkChan chan<- upcheck.CheckInfo) {
+func checkAllTargets(ctx context.Context, targets []*upcheck.Target, interval int, checkChan chan<- upcheck.CheckInfo) {
 	for _, target := range targets {
-		go upcheck.PeriodicallyCheckHost(target, interval, ctx, cmdChan, checkChan)
+		go upcheck.PeriodicallyCheckHost(target, interval, ctx, target.CmdChan, checkChan)
 	}
 }
 
@@ -173,7 +171,7 @@ func showTargets(runInfo *RunInfo) {
 	}
 }
 
-func handleKeys(runInfo *RunInfo, cmdChan chan<- upcheck.ControlSignal, cancel func()) bool {
+func handleKeys(runInfo *RunInfo, cancel func()) bool {
 	if char, key, err := keyboard.GetKey(); err == nil {
 		if key == keyboard.KeyEsc || key == keyboard.KeyCtrlC {
 			fmt.Println("Exiting...")
@@ -189,11 +187,11 @@ func handleKeys(runInfo *RunInfo, cmdChan chan<- upcheck.ControlSignal, cancel f
 			if *runInfo.paused {
 				fmt.Println("Resuming...")
 				*runInfo.paused = false
-				cmdChan <- upcheck.RESUME
+				resumeAllTargets(runInfo.checkTargets)
 			} else {
 				fmt.Println("Pausing...")
 				*runInfo.paused = true
-				cmdChan <- upcheck.PAUSE
+				pauseAllTargets(runInfo.checkTargets)
 			}
 		case 'r':
 			fmt.Println("Resetting all stats...")
@@ -206,6 +204,18 @@ func handleKeys(runInfo *RunInfo, cmdChan chan<- upcheck.ControlSignal, cancel f
 		}
 	}
 	return true
+}
+
+func pauseAllTargets(targets []*upcheck.Target) {
+	for _, target := range targets {
+		target.CmdChan <- upcheck.PAUSE
+	}
+}
+
+func resumeAllTargets(targets []*upcheck.Target) {
+	for _, target := range targets {
+		target.CmdChan <- upcheck.RESUME
+	}
 }
 
 func showHelp() {
