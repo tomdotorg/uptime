@@ -102,7 +102,7 @@ func main() {
 				runInfo.mu.Unlock()
 				if gw != nil {
 					log.Info().Msgf("added default gw: %v", currentNetInfo.GW)
-					go upcheck.PeriodicallyCheckHost(gw.Host, gw.Port, *runInfo.interval, ctx, cmdChan, checkChan)
+					go upcheck.PeriodicallyCheckHost(gw, *runInfo.interval, ctx, cmdChan, checkChan)
 
 				}
 			}
@@ -116,7 +116,7 @@ func main() {
 
 func checkAllTargets(ctx context.Context, targets []*upcheck.Target, interval int, cmdChan chan upcheck.ControlSignal, checkChan chan<- upcheck.CheckInfo) {
 	for _, target := range targets {
-		go upcheck.PeriodicallyCheckHost(target.Host, target.Port, interval, ctx, cmdChan, checkChan)
+		go upcheck.PeriodicallyCheckHost(target, interval, ctx, cmdChan, checkChan)
 	}
 }
 
