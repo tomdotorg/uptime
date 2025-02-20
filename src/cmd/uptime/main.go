@@ -32,7 +32,7 @@ func main() {
 	runInfo := RunInfo{
 		programStartedTime: func() *time.Time { t := time.Now(); return &t }(),
 		configFilename:     flag.String("f", CONFIGFILE, "Filename containing the targets"),
-		interval:           flag.Int("i", 2, "Number of seconds between target checks"),
+		interval:           flag.Int("i", 2, "Number of seconds between target checkChan"),
 		paused:             new(bool), // zero value is false
 	}
 
@@ -60,9 +60,9 @@ func main() {
 	// to here, we are in one goroutine.
 
 	cmdChan := make(chan upcheck.ControlSignal)
-	checks := make(chan upcheck.CheckInfo, 100)
+	checkChan := make(chan upcheck.CheckInfo, 100)
 
-	go listenForCheckInfo(ctx, runInfo.checkTargets, checks)
+	go listenForCheckInfo(ctx, runInfo.checkTargets, checkChan)
 
 	currentNetInfo, err := upcheck.GetNetworkInfo()
 	if err != nil {
@@ -70,19 +70,31 @@ func main() {
 		cancel()
 	}
 
+	runInfo.mu.Lock()
+	runInfo.networkInfo = &currentNetInfo
+	runInfo.mu.Unlock()
+
 	// fire off a goroutine for each target
-	checkAllTargets(ctx, runInfo.checkTargets, *runInfo.interval, cmdChan, checks)
+	checkAllTargets(ctx, runInfo.checkTargets, *runInfo.interval, cmdChan, checkChan)
 
 	for keepGoing := true; keepGoing; {
 		newNetInfo, err := upcheck.GetNetworkInfo()
 		if err != nil { // network is down
-			log.Warn().Msg("Error getting network info - must be down - stopping checks")
+			log.Warn().Msg("Error getting network info - must be down - stopping checkChan")
 			currentNetInfo = upcheck.NetworkInfo{}
+			runInfo.mu.Lock()
+			runInfo.networkInfo = nil
+			runInfo.mu.Unlock()
+
 			cmdChan <- upcheck.PAUSE
 		} else { // network is valid
 			// if it has changed, make sure we have the default gw in the target list
 			if !newNetInfo.Equals(currentNetInfo) {
+				// todo get rid of current net info or get rid of the shared struct
 				currentNetInfo = newNetInfo
+				runInfo.mu.Lock()
+				runInfo.networkInfo = nil
+				runInfo.mu.Unlock()
 				log.Info().Msgf("Network changed. Now %v", newNetInfo)
 				checkTargets, gw := upcheck.AddDefaultGatewayTarget(runInfo.checkTargets, &newNetInfo)
 				runInfo.mu.Lock()
@@ -90,22 +102,19 @@ func main() {
 				runInfo.mu.Unlock()
 				if gw != nil {
 					log.Info().Msgf("added default gw: %v", currentNetInfo.GW)
-					go upcheck.PeriodicallyCheckHost(gw.Host, gw.Port, *runInfo.interval, ctx, cmdChan, checks)
+					go upcheck.PeriodicallyCheckHost(gw.Host, gw.Port, *runInfo.interval, ctx, cmdChan, checkChan)
 
 				}
 			}
-			if !*runInfo.paused {
-				cmdChan <- upcheck.RESUME
-			}
 		}
 		// do the network check here?
-		keepGoing = handleKeys(ctx, &runInfo, cmdChan, checks, cancel)
+		keepGoing = handleKeys(&runInfo, cmdChan, cancel)
 	}
 	log.Info().Msg("keepGoing is false. calling cancel()")
 	cancel()
 }
 
-func checkAllTargets(ctx context.Context, targets []*upcheck.Target, interval int, cmdChan chan upcheck.ControlSignal, checkChan chan upcheck.CheckInfo) {
+func checkAllTargets(ctx context.Context, targets []*upcheck.Target, interval int, cmdChan chan upcheck.ControlSignal, checkChan chan<- upcheck.CheckInfo) {
 	for _, target := range targets {
 		go upcheck.PeriodicallyCheckHost(target.Host, target.Port, interval, ctx, cmdChan, checkChan)
 	}
@@ -164,7 +173,7 @@ func showTargets(runInfo *RunInfo) {
 	}
 }
 
-func handleKeys(ctx context.Context, runInfo *RunInfo, cmdChan <-chan upcheck.ControlSignal, checks chan<- upcheck.CheckInfo, cancel func()) bool {
+func handleKeys(runInfo *RunInfo, cmdChan chan<- upcheck.ControlSignal, cancel func()) bool {
 	if char, key, err := keyboard.GetKey(); err == nil {
 		if key == keyboard.KeyEsc || key == keyboard.KeyCtrlC {
 			fmt.Println("Exiting...")
@@ -180,9 +189,11 @@ func handleKeys(ctx context.Context, runInfo *RunInfo, cmdChan <-chan upcheck.Co
 			if *runInfo.paused {
 				fmt.Println("Resuming...")
 				*runInfo.paused = false
+				cmdChan <- upcheck.RESUME
 			} else {
 				fmt.Println("Pausing...")
 				*runInfo.paused = true
+				cmdChan <- upcheck.PAUSE
 			}
 		case 'r':
 			fmt.Println("Resetting all stats...")

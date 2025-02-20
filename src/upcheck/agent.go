@@ -23,18 +23,19 @@ type CheckInfo struct {
 }
 
 func PeriodicallyCheckHost(ip string, port int, intervalSecs int, ctx context.Context, cmd <-chan ControlSignal, checks chan<- CheckInfo) {
-	for paused := false; ; {
+	paused := false
+	for {
 		select {
 		case <-ctx.Done():
 			log.Info().Msg("Context cancelled - returning")
 			return
 		case command := <-cmd:
 			if command == PAUSE {
-				log.Info().Msg("Received PAUSE command - pausing")
+				log.Info().Msgf("%v Received PAUSE command", ip)
 				paused = true
 			}
 			if command == RESUME {
-				log.Info().Msg("Received RESUME command - resuming")
+				log.Info().Msgf("%v Received RESUME command", ip)
 				paused = false
 			}
 		default:
@@ -46,8 +47,10 @@ func PeriodicallyCheckHost(ip string, port int, intervalSecs int, ctx context.Co
 				}
 				log.Debug().Msgf("Sending %v", checkInfo)
 				checks <- checkInfo
-				// intentionally not allowing time to go by while we might be timing out so we dont
+				// intentionally not allowing time to go by while we might be timing out so we don't
 				// get a thundering herd problem or anything.
+			} else {
+				log.Debug().Msgf("paused, so skipping check: %v:%v", ip, port)
 			}
 			time.Sleep(time.Duration(intervalSecs) * time.Second)
 		}
