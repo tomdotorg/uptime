@@ -24,6 +24,42 @@ type CheckInfo struct {
 
 func PeriodicallyCheckHost(target *Target, intervalSecs int, ctx context.Context, cmd <-chan ControlSignal, checks chan<- CheckInfo) {
 	paused := false
+	ticker := time.NewTicker(time.Duration(intervalSecs) * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info().Msg("Context cancelled - returning")
+			return
+		case command := <-cmd:
+			if command == PAUSE {
+				log.Info().Msgf("%v Received PAUSE command", target.IP)
+				paused = true
+			}
+			if command == RESUME {
+				log.Info().Msgf("%v Received RESUME command", target.IP)
+				paused = false
+			}
+		case <-ticker.C:
+			if !paused {
+				log.Debug().Msgf("Checking host %s:%d", target.IP, target.Port)
+				checkInfo, err := isHostListening(target.Host, target.Port)
+				if err != nil {
+					log.Warn().Msgf("Error checking host %s:%d: %v", target.Host, target.Port, err)
+				}
+				log.Debug().Msgf("Sending %v", checkInfo)
+				checks <- checkInfo
+			} else {
+				log.Debug().Msgf("Paused, so skipping check: %v:%v", target.Host, target.Port)
+			}
+		}
+	}
+}
+
+/*
+func PeriodicallyCheckHost(target *Target, intervalSecs int, ctx context.Context, cmd <-chan ControlSignal, checks chan<- CheckInfo) {
+	paused := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -43,7 +79,7 @@ func PeriodicallyCheckHost(target *Target, intervalSecs int, ctx context.Context
 				log.Debug().Msgf("Checking host %s:%d", target.IP, target.Port)
 				checkInfo, err := isHostListening(target.Host, target.Port)
 				if err != nil {
-					log.Warn().Msgf("Error checking host %s:%d: %v", target.Host, target.Port, err)
+					log.Info().Msgf("Error checking host %s:%d: %v", target.Host, target.Port, err)
 				}
 				log.Debug().Msgf("Sending %v", checkInfo)
 				checks <- checkInfo
@@ -56,3 +92,4 @@ func PeriodicallyCheckHost(target *Target, intervalSecs int, ctx context.Context
 		}
 	}
 }
+*/

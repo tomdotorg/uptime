@@ -32,7 +32,7 @@ func main() {
 	runInfo := RunInfo{
 		programStartedTime: func() *time.Time { t := time.Now(); return &t }(),
 		configFilename:     flag.String("f", CONFIGFILE, "Filename containing the targets"),
-		interval:           flag.Int("i", 2, "Number of seconds between target checkChan"),
+		interval:           flag.Int("i", 2, "Number of seconds between each check"),
 		paused:             new(bool), // zero value is false
 	}
 
@@ -58,8 +58,6 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// to here, we are in one goroutine.
-
-	// cmdChan := make(chan upcheck.ControlSignal)
 	checkChan := make(chan upcheck.CheckInfo, 100)
 
 	go listenForCheckInfo(ctx, runInfo.checkTargets, checkChan)
@@ -71,7 +69,7 @@ func main() {
 	}
 
 	runInfo.mu.Lock()
-	runInfo.networkInfo = &currentNetInfo
+	runInfo.networkInfo = currentNetInfo
 	runInfo.mu.Unlock()
 
 	// fire off a goroutine for each target
@@ -81,7 +79,7 @@ func main() {
 		newNetInfo, err := upcheck.GetNetworkInfo()
 		if err != nil { // network is down
 			log.Warn().Msg("Error getting network info - must be down - stopping checkChan")
-			currentNetInfo = upcheck.NetworkInfo{}
+			currentNetInfo = nil
 			runInfo.mu.Lock()
 			runInfo.networkInfo = nil
 			runInfo.mu.Unlock()
@@ -95,7 +93,7 @@ func main() {
 				runInfo.networkInfo = nil
 				runInfo.mu.Unlock()
 				log.Info().Msgf("Network changed. Now %v", newNetInfo)
-				checkTargets, gw := upcheck.AddDefaultGatewayTarget(runInfo.checkTargets, &newNetInfo)
+				checkTargets, gw := upcheck.AddDefaultGatewayTarget(runInfo.checkTargets, newNetInfo)
 				runInfo.mu.Lock()
 				runInfo.checkTargets = checkTargets
 				runInfo.mu.Unlock()
@@ -134,7 +132,7 @@ func listenForCheckInfo(ctx context.Context, checkTargets []*upcheck.Target, che
 	for {
 		select {
 		case <-ctx.Done():
-			log.Info().Msg("Context canceled, stopping listenForCheckInfo")
+			log.Info().Msg("Context canceled, stopping listenForCheckInfo()")
 			return
 		case checkInfo := <-checks:
 			target := upcheck.FindTarget(checkTargets, checkInfo.Host, checkInfo.Port)

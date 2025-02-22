@@ -41,7 +41,7 @@ var defaultTargets = []*Target{
 		Attempts: 0,
 		Failures: 0,
 		Errors:   make(map[string]int),
-		CmdChan:  make(chan ControlSignal),
+		CmdChan:  make(chan ControlSignal, 10),
 	},
 	{
 		Name:     "Cloudflare DNS",
@@ -53,7 +53,7 @@ var defaultTargets = []*Target{
 		Attempts: 0,
 		Failures: 0,
 		Errors:   make(map[string]int),
-		CmdChan:  make(chan ControlSignal),
+		CmdChan:  make(chan ControlSignal, 10),
 	},
 }
 
@@ -89,12 +89,12 @@ func parseHostPortType(line string) (string, net.IP, int, error) {
 // isHostListening checks if a host is listening on a given port.
 func isHostListening(host string, port int) (checkInfo CheckInfo, err error) {
 	hostPort := net.JoinHostPort(host, strconv.Itoa(port))
-	start := time.Now()
-	conn, err := net.DialTimeout("tcp", hostPort, 2*time.Second)
-	checkInfo.Latency = time.Now().Sub(start)
 	checkInfo.Host = host
 	checkInfo.Port = port
 	checkInfo.IsUp = true
+	start := time.Now()
+	conn, err := net.DialTimeout("tcp", hostPort, 2*time.Second)
+	checkInfo.Latency = time.Now().Sub(start)
 	if conn != nil {
 		defer func(conn net.Conn) {
 			connErr := conn.Close()
@@ -169,7 +169,7 @@ func AddDefaultGatewayTarget(targets []*Target, netInfo *NetworkInfo) ([]*Target
 		Since:       time.Time{},
 		LastLatency: upCheckInfo.Latency,
 		Errors:      make(map[string]int),
-		CmdChan:     make(chan ControlSignal),
+		CmdChan:     make(chan ControlSignal, 10),
 	}
 	rec.Since = time.Now()
 	rec.TotalLatency += upCheckInfo.Latency
@@ -191,7 +191,7 @@ func AddTarget(targets []*Target, name string, host string, port int) []*Target 
 		IsAlive:  true,
 		Since:    time.Time{},
 		Errors:   make(map[string]int),
-		CmdChan:  make(chan ControlSignal),
+		CmdChan:  make(chan ControlSignal, 10),
 	}
 	rec.Since = time.Now()
 	targets = append(targets, rec)
@@ -209,14 +209,12 @@ func LoadTargets(filename string) []*Target {
 		log.Info().Msg("using defaults")
 		results = defaultTargets
 	} else {
-
 		defer func(file *os.File) {
 			err := file.Close()
 			if err != nil {
 				log.Fatal().Err(err).Msgf("error closing %s", filename)
 			}
 		}(file)
-
 		// Read each line from the file
 		scanner := bufio.NewScanner(file)
 		for scanner.Scan() {
@@ -237,7 +235,7 @@ func LoadTargets(filename string) []*Target {
 						IsAlive:  true,
 						Since:    time.Time{},
 						Errors:   make(map[string]int),
-						CmdChan:  make(chan ControlSignal),
+						CmdChan:  make(chan ControlSignal, 10),
 					}
 					rec.Since = time.Now()
 					results = append(results, rec)
@@ -255,9 +253,9 @@ func LoadTargets(filename string) []*Target {
 	if err != nil {
 		log.Warn().Msg("error getting network info so no default gw check")
 	} else {
-		defaultGWTarget := FindDefaultGateway(results, &netInfo)
+		defaultGWTarget := FindDefaultGateway(results, netInfo)
 		if defaultGWTarget == nil {
-			results, _ = AddDefaultGatewayTarget(results, &netInfo)
+			results, _ = AddDefaultGatewayTarget(results, netInfo)
 		}
 	}
 	return results
