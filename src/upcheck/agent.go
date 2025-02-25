@@ -27,6 +27,8 @@ func PeriodicallyCheckHost(host string, port int, intervalSecs int, ctx context.
 	ticker := time.NewTicker(time.Duration(intervalSecs) * time.Second)
 	defer ticker.Stop()
 
+	lastErr := ""
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -46,7 +48,8 @@ func PeriodicallyCheckHost(host string, port int, intervalSecs int, ctx context.
 				checkCtx, cancel := context.WithTimeout(context.Background(), time.Duration(intervalSecs)*time.Second)
 				log.Debug().Msgf("Checking host %s:%d", host, port)
 				checkInfo, err := isHostListening(checkCtx, host, port)
-				if err != nil {
+				if err != nil && err.Error() != lastErr {
+					lastErr = err.Error()
 					log.Warn().Msgf("Error checking host %s:%d: %v", host, port, err)
 				}
 				log.Debug().Msgf("Sending %v", checkInfo)

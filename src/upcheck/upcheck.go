@@ -129,6 +129,8 @@ func FindDefaultGateway(targets []*Target, defaultGW *NetworkInfo) *Target {
 	return nil
 }
 
+// todo make this thread safe
+
 // AddDefaultGatewayTarget adds the default gateway to the list of targets
 func AddDefaultGatewayTarget(ctx context.Context, targets []*Target, netInfo *NetworkInfo) ([]*Target, *Target) {
 	if FindDefaultGateway(targets, netInfo) != nil { // already in the list
@@ -398,7 +400,7 @@ func ClassifyTargets(targets []*Target, netInfo *NetworkInfo) (subnetTargets, ga
 	gatewayTargets = make([]*Target, 0)
 	externalTargets = make([]*Target, 0)
 
-	log.Info().Msgf("Classifying targets for\n%s", netInfo)
+	log.Debug().Msgf("Classifying targets for\n%s", netInfo)
 	for _, target := range targets {
 		log.Debug().Msgf("locking %v", target)
 		target.mu.RLock()

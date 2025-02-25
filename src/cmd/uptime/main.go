@@ -50,7 +50,7 @@ func main() {
 		}
 	}()
 
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
 
 	runInfo.checkTargets = upcheck.LoadTargets(ctx, *runInfo.configFilename)
 	runInfo.configTime = time.Now()
@@ -60,8 +60,8 @@ func main() {
 	// to here, we are in one goroutine.
 	checkChan := make(chan upcheck.CheckInfo)
 
-	checkCtx, cancel := context.WithCancel(ctx)
-	go listenForCheckInfo(checkCtx, runInfo.checkTargets, checkChan)
+	// checkCtx, cancel := context.WithCancel(ctx)
+	go listenForCheckInfo(ctx, runInfo.checkTargets, checkChan)
 
 	// fire off a goroutine for each target
 	checkAllTargets(ctx, runInfo.checkTargets, *runInfo.interval, checkChan)
