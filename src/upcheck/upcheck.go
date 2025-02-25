@@ -2,6 +2,7 @@ package upcheck
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -87,13 +88,13 @@ func parseHostPortType(line string) (string, net.IP, int, error) {
 }
 
 // isHostListening checks if a host is listening on a given port.
-func isHostListening(host string, port int) (checkInfo CheckInfo, err error) {
+func isHostListening(ctx context.Context, host string, port int) (checkInfo CheckInfo, err error) {
 	hostPort := net.JoinHostPort(host, strconv.Itoa(port))
 	checkInfo.Host = host
 	checkInfo.Port = port
-	checkInfo.IsUp = true
 	start := time.Now()
-	conn, err := net.DialTimeout("tcp", hostPort, 2*time.Second)
+	var dialer = &net.Dialer{}
+	conn, err := dialer.DialContext(ctx, "tcp", hostPort)
 	checkInfo.Latency = time.Now().Sub(start)
 	if conn != nil {
 		defer func(conn net.Conn) {
@@ -103,14 +104,15 @@ func isHostListening(host string, port int) (checkInfo CheckInfo, err error) {
 			}
 		}(conn)
 	}
+	// TODO: after a host has a problem, hitting s locks up on the host with the error
 
 	if err != nil {
-		if isMemoryError(err) {
-			log.Debug().Msgf("memory error connecting to %s : %s", host, err)
-			printMemUsage()
-			// for now, ignore memory errors TODO: handle this better
-			return CheckInfo{true, host, port, checkInfo.Latency, nil}, nil
-		}
+		// if isMemoryError(err) {
+		// 	log.Info().Msgf("memory error connecting to %s : %s", host, err)
+		// 	printMemUsage()
+		// 	// for now, ignore memory errors TODO: handle this better
+		// 	return CheckInfo{true, host, port, checkInfo.Latency, nil}, nil
+		// }
 		return CheckInfo{false, host, port, checkInfo.Latency, err}, err
 	}
 	// if we get here, the connection was successful
@@ -128,7 +130,7 @@ func FindDefaultGateway(targets []*Target, defaultGW *NetworkInfo) *Target {
 }
 
 // AddDefaultGatewayTarget adds the default gateway to the list of targets
-func AddDefaultGatewayTarget(targets []*Target, netInfo *NetworkInfo) ([]*Target, *Target) {
+func AddDefaultGatewayTarget(ctx context.Context, targets []*Target, netInfo *NetworkInfo) ([]*Target, *Target) {
 	if FindDefaultGateway(targets, netInfo) != nil { // already in the list
 		return targets, nil
 	}
@@ -147,7 +149,7 @@ func AddDefaultGatewayTarget(targets []*Target, netInfo *NetworkInfo) ([]*Target
 	ports := []int{PortDNS, PortHTTP, PortHTTPS, PortSSH, PortHTTPAlt, PortHTTPSAlt, PortNTP}
 	var upCheckInfo CheckInfo
 	for _, targetPort := range ports {
-		upCheckInfo, _ = isHostListening(netInfo.GW.String(), targetPort)
+		upCheckInfo, _ = isHostListening(ctx, netInfo.GW.String(), targetPort)
 		if upCheckInfo.IsUp {
 			foundListenPort = true
 			listenPort = targetPort
@@ -199,7 +201,7 @@ func AddTarget(targets []*Target, name string, host string, port int) []*Target 
 	return targets
 }
 
-func LoadTargets(filename string) []*Target {
+func LoadTargets(ctx context.Context, filename string) []*Target {
 	results := make([]*Target, 0)
 
 	// Open the file
@@ -255,7 +257,7 @@ func LoadTargets(filename string) []*Target {
 	} else {
 		defaultGWTarget := FindDefaultGateway(results, netInfo)
 		if defaultGWTarget == nil {
-			results, _ = AddDefaultGatewayTarget(results, netInfo)
+			results, _ = AddDefaultGatewayTarget(ctx, results, netInfo)
 		}
 	}
 	return results
@@ -286,18 +288,42 @@ func updateTargetStats(target *Target, upCheckInfo CheckInfo) {
 		target.TotalLatency += upCheckInfo.Latency
 		if !target.IsAlive {
 			target.CurrentError = ""
-			log.Info().Msgf("target %v is back up - was down for %s", target, time.Now().Sub(target.Since).Round(time.Second).String())
+			log.Info().Msgf("target %s is back up - was down for %s", target.Name, time.Now().Sub(target.Since).Round(time.Second).String())
 			target.Since = time.Now()
 		}
 		target.IsAlive = true
 	} else {
 		target.Failures++
 		if target.IsAlive {
-			log.Info().Msgf("target %v is down - was up for %s (%s)", target, time.Now().Sub(target.Since).Round(time.Second).String(), target.CurrentError)
+			log.Info().Msgf("target %s is down - was up for %s (%s)", target.Name, time.Now().Sub(target.Since).Round(time.Second).String(), target.CurrentError)
 			target.Since = time.Now()
 		}
 		target.IsAlive = false
 	}
+}
+
+func (t *Target) copyTarget(original *Target) Target {
+	// Create a new instance of Target and copy the values from the original
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	newTarget := Target{
+		Name:         t.Name,
+		Host:         t.Host,
+		Port:         t.Port,
+		Attempts:     t.Attempts,
+		Failures:     t.Failures,
+		IsAlive:      t.IsAlive,
+		Since:        t.Since,
+		Errors:       make(map[string]int),
+		LastLatency:  t.LastLatency,
+		TotalLatency: t.TotalLatency,
+	}
+
+	// Copy the map values
+	for key, value := range original.Errors {
+		newTarget.Errors[key] = value
+	}
+	return newTarget
 }
 
 func (t *Target) String() string {
@@ -351,7 +377,6 @@ func ResetAllStats(targets []*Target) {
 func resetStats(target *Target) {
 	target.mu.Lock()
 	defer target.mu.Unlock()
-	target.IsAlive = true
 	target.Since = time.Now()
 	target.Attempts = 0
 	target.Failures = 0
@@ -368,10 +393,23 @@ func ClassifyTargets(targets []*Target, netInfo *NetworkInfo) (subnetTargets, ga
 		ok = false
 		return
 	}
+
+	subnetTargets = make([]*Target, 0)
+	gatewayTargets = make([]*Target, 0)
+	externalTargets = make([]*Target, 0)
+
+	log.Info().Msgf("Classifying targets for\n%s", netInfo)
 	for _, target := range targets {
-		if target.IP.Equal(netInfo.GW) {
+		log.Debug().Msgf("locking %v", target)
+		target.mu.RLock()
+		ip := target.IP
+		target.mu.RUnlock()
+		log.Debug().Msgf("unlocked %v", target)
+		mask := netInfo.Mask
+		addr := netInfo.Address
+		if ip.Equal(netInfo.GW) {
 			gatewayTargets = append(gatewayTargets, target)
-		} else if IsInSameSubnet(netInfo.Address, netInfo.Mask, target.IP) {
+		} else if IsInSameSubnet(addr, mask, ip) {
 			subnetTargets = append(subnetTargets, target)
 		} else {
 			externalTargets = append(externalTargets, target)

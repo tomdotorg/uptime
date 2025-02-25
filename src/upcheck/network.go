@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/jackpal/gateway"
@@ -15,13 +16,19 @@ type NetworkInfo struct {
 	Address net.IP
 	Mask    net.IPMask
 	GW      net.IP
+	Mu      sync.RWMutex
 }
 
-func (n NetworkInfo) Equals(o *NetworkInfo) bool {
+func (n *NetworkInfo) Equals(o *NetworkInfo) bool {
+	if o == nil {
+		return false
+	}
 	return n.Address.Equal(o.Address) && bytes.Equal(n.Mask, o.Mask) && n.GW.Equal(o.GW)
 }
 
-func (n NetworkInfo) String() string {
+func (n *NetworkInfo) String() string {
+	n.Mu.RLock()
+	defer n.Mu.RUnlock()
 	return fmt.Sprintf("Address: %s\nMask: %s\nGW: %s", n.Address, net.IP(n.Mask), n.GW)
 }
 

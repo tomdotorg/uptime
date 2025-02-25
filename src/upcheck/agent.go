@@ -22,7 +22,7 @@ type CheckInfo struct {
 	Err     error
 }
 
-func PeriodicallyCheckHost(target *Target, intervalSecs int, ctx context.Context, cmd <-chan ControlSignal, checks chan<- CheckInfo) {
+func PeriodicallyCheckHost(host string, port int, intervalSecs int, ctx context.Context, cmd <-chan ControlSignal, checks chan<- CheckInfo) {
 	paused := false
 	ticker := time.NewTicker(time.Duration(intervalSecs) * time.Second)
 	defer ticker.Stop()
@@ -34,24 +34,24 @@ func PeriodicallyCheckHost(target *Target, intervalSecs int, ctx context.Context
 			return
 		case command := <-cmd:
 			if command == PAUSE {
-				log.Info().Msgf("%v Received PAUSE command", target.IP)
+				log.Info().Msgf("%v Received PAUSE command", host)
 				paused = true
 			}
 			if command == RESUME {
-				log.Info().Msgf("%v Received RESUME command", target.IP)
+				log.Info().Msgf("%v Received RESUME command", host)
 				paused = false
 			}
 		case <-ticker.C:
 			if !paused {
-				log.Debug().Msgf("Checking host %s:%d", target.IP, target.Port)
-				checkInfo, err := isHostListening(target.Host, target.Port)
+				checkCtx, cancel := context.WithTimeout(context.Background(), time.Duration(intervalSecs)*time.Second)
+				log.Debug().Msgf("Checking host %s:%d", host, port)
+				checkInfo, err := isHostListening(checkCtx, host, port)
 				if err != nil {
-					log.Warn().Msgf("Error checking host %s:%d: %v", target.Host, target.Port, err)
+					log.Warn().Msgf("Error checking host %s:%d: %v", host, port, err)
 				}
 				log.Debug().Msgf("Sending %v", checkInfo)
 				checks <- checkInfo
-			} else {
-				log.Debug().Msgf("Paused, so skipping check: %v:%v", target.Host, target.Port)
+				cancel()
 			}
 		}
 	}
