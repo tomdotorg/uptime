@@ -107,12 +107,12 @@ func isHostListening(ctx context.Context, host string, port int) (checkInfo Chec
 	// TODO: after a host has a problem, hitting s locks up on the host with the error
 
 	if err != nil {
-		// if isMemoryError(err) {
-		// 	log.Info().Msgf("memory error connecting to %s : %s", host, err)
-		// 	printMemUsage()
-		// 	// for now, ignore memory errors TODO: handle this better
-		// 	return CheckInfo{true, host, port, checkInfo.Latency, nil}, nil
-		// }
+		// for now, ignore memory errors TODO: handle this better
+		if isMemoryError(err) {
+			log.Debug().Msgf("memory error connecting to %s : %s", host, err)
+			printMemUsage()
+			return CheckInfo{true, host, port, checkInfo.Latency, nil}, nil
+		}
 		return CheckInfo{false, host, port, checkInfo.Latency, err}, err
 	}
 	// if we get here, the connection was successful
