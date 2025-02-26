@@ -55,42 +55,17 @@ func main() {
 	runInfo.checkTargets = upcheck.LoadTargets(ctx, *runInfo.configFilename)
 	runInfo.configTime = time.Now()
 
-	fmt.Println("Checking all targets (s key for status, ? for help)...")
-
 	// to here, we are in one goroutine.
 	checkChan := make(chan upcheck.CheckInfo)
 
-	// checkCtx, cancel := context.WithCancel(ctx)
-	go listenForCheckInfo(ctx, runInfo.checkTargets, checkChan)
+	go listenForCheckInfo(ctx, &runInfo, checkChan)
+	go watchForNetworkChanges(ctx, &runInfo, checkChan)
 
+	fmt.Println("Checking all targets (s key for status, ? for help)...")
 	// fire off a goroutine for each target
 	checkAllTargets(ctx, runInfo.checkTargets, *runInfo.interval, checkChan)
 
 	for keepGoing := true; keepGoing; {
-		newNetInfo, err := upcheck.GetNetworkInfo()
-		if err != nil { // network is down
-			log.Warn().Msg("Error getting network info - must be down")
-			runInfo.mu.Lock()
-			runInfo.networkInfo = nil
-			runInfo.mu.Unlock()
-			pauseAllTargets(runInfo.checkTargets)
-		} else { // network is valid
-			// if it has changed, make sure we have the default gw in the target list
-			if !newNetInfo.Equals(runInfo.networkInfo) {
-				runInfo.mu.Lock()
-				runInfo.networkInfo = newNetInfo
-				runInfo.mu.Unlock()
-				log.Info().Msgf("Network changed.\n%v", newNetInfo)
-				checkTargets, gw := upcheck.AddDefaultGatewayTarget(ctx, runInfo.checkTargets, newNetInfo)
-				runInfo.mu.Lock()
-				runInfo.checkTargets = checkTargets
-				runInfo.mu.Unlock()
-				if gw != nil {
-					log.Info().Msgf("added default gw: %v", gw)
-					go upcheck.PeriodicallyCheckHost(gw.Host, gw.Port, *runInfo.interval, ctx, gw.CmdChan, checkChan)
-				}
-			}
-		}
 		keepGoing = handleKeys(&runInfo)
 	}
 	log.Info().Msg("keepGoing is false. calling cancel()")
@@ -100,6 +75,42 @@ func main() {
 func checkAllTargets(ctx context.Context, targets []*upcheck.Target, interval int, checkChan chan<- upcheck.CheckInfo) {
 	for _, target := range targets {
 		go upcheck.PeriodicallyCheckHost(target.Host, target.Port, interval, ctx, target.CmdChan, checkChan)
+	}
+}
+
+func watchForNetworkChanges(ctx context.Context, runInfo *RunInfo, checkChan chan<- upcheck.CheckInfo) {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			log.Info().Msg("Context canceled, stopping watchForNetworkChanges()")
+			return
+		case <-ticker.C:
+			newNetInfo, err := upcheck.GetNetworkInfo()
+			if err != nil { // network is down
+				log.Warn().Msg("Error getting network info - must be down")
+				runInfo.mu.Lock()
+				runInfo.networkInfo = nil
+				runInfo.mu.Unlock()
+			} else { // network is valid
+				// if it has changed, make sure we have the default gw in the target list
+				if !newNetInfo.Equals(runInfo.networkInfo) {
+					runInfo.mu.Lock()
+					runInfo.networkInfo = newNetInfo
+					runInfo.mu.Unlock()
+					log.Info().Msgf("Network changed.\n%v", newNetInfo)
+					results, gw := upcheck.AddDefaultGatewayTarget(ctx, runInfo.checkTargets, runInfo.networkInfo)
+					if gw != nil {
+						log.Info().Msgf("added default gw: %v", gw)
+						runInfo.mu.Lock()
+						runInfo.checkTargets = results
+						runInfo.mu.Unlock()
+						go upcheck.PeriodicallyCheckHost(gw.Host, gw.Port, *runInfo.interval, ctx, gw.CmdChan, checkChan)
+					}
+				}
+			}
+		}
 	}
 }
 
@@ -114,7 +125,7 @@ Parameters:
 
 The function uses synchronization mechanisms to ensure thread-safe updates to the target data.
 */
-func listenForCheckInfo(ctx context.Context, checkTargets []*upcheck.Target, checks <-chan upcheck.CheckInfo) {
+func listenForCheckInfo(ctx context.Context, runInfo *RunInfo, checks <-chan upcheck.CheckInfo) {
 	log.Info().Msg("Listening for checkInfo")
 	for {
 		select {
@@ -123,13 +134,17 @@ func listenForCheckInfo(ctx context.Context, checkTargets []*upcheck.Target, che
 			return
 		case checkInfo := <-checks:
 			log.Debug().Msgf("Received checkInfo: %v", checkInfo)
-			target := upcheck.FindTarget(checkTargets, checkInfo.Host, checkInfo.Port)
+			runInfo.mu.RLock()
+			target := upcheck.FindTarget(runInfo.checkTargets, checkInfo.Host, checkInfo.Port)
+			runInfo.mu.RUnlock()
 			if target != nil {
 				log.Debug().Msgf("Received valid checkInfo for target: %s:%d", target.Host, target.Port)
 				target.Update(checkInfo)
+				target.Mu.RLock()
 				log.Debug().Msgf("%s:%d updated.", target.Host, target.Port)
+				target.Mu.RUnlock()
 			} else {
-				log.Warn().Msgf("Received checkInfo for unknown target: %s:%d", checkInfo.Host, checkInfo.Port)
+				log.Warn().Msgf("Received checkInfo (%v) for unknown target: %s:%d", checkInfo, checkInfo.Host, checkInfo.Port)
 			}
 		}
 	}

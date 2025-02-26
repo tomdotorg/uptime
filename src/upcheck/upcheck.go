@@ -15,7 +15,7 @@ import (
 )
 
 type Target struct {
-	mu           sync.RWMutex
+	Mu           sync.RWMutex
 	Name         string
 	Host         string
 	Port         int
@@ -122,8 +122,12 @@ func isHostListening(ctx context.Context, host string, port int) (checkInfo Chec
 // FindDefaultGateway returns the Target that matches the default gateway from the NetInfo struct
 func FindDefaultGateway(targets []*Target, defaultGW *NetworkInfo) *Target {
 	for _, target := range targets {
+		target.Mu.RLock()
 		if target.IP.Equal(defaultGW.GW) {
+			target.Mu.RUnlock()
 			return target
+		} else {
+			target.Mu.RUnlock()
 		}
 	}
 	return nil
@@ -134,6 +138,7 @@ func FindDefaultGateway(targets []*Target, defaultGW *NetworkInfo) *Target {
 // AddDefaultGatewayTarget adds the default gateway to the list of targets
 func AddDefaultGatewayTarget(ctx context.Context, targets []*Target, netInfo *NetworkInfo) ([]*Target, *Target) {
 	if FindDefaultGateway(targets, netInfo) != nil { // already in the list
+		log.Info().Msgf("default gateway %s is already in the list - not adding", netInfo.GW)
 		return targets, nil
 	}
 	// see if the gw is listening on 53, else try 80, else quit trying
@@ -150,17 +155,20 @@ func AddDefaultGatewayTarget(ctx context.Context, targets []*Target, netInfo *Ne
 	)
 	ports := []int{PortDNS, PortHTTP, PortHTTPS, PortSSH, PortHTTPAlt, PortHTTPSAlt, PortNTP}
 	var upCheckInfo CheckInfo
+	addr := netInfo.GW.String()
 	for _, targetPort := range ports {
-		upCheckInfo, _ = isHostListening(ctx, netInfo.GW.String(), targetPort)
+		upCheckInfo, _ = isHostListening(ctx, addr, targetPort)
 		if upCheckInfo.IsUp {
 			foundListenPort = true
 			listenPort = targetPort
+			log.Info().Msgf("default gateway %s is listening on port %d", netInfo.GW, targetPort)
 			break
 		}
 	}
 	if !foundListenPort {
 		log.Warn().Msgf("default gateway %s is not listening on known ports", netInfo.GW)
 	}
+	netInfo.Mu.RLock()
 	name := netInfo.GW.String() + " (auto)"
 	rec := &Target{
 		Name:        name,
@@ -175,32 +183,14 @@ func AddDefaultGatewayTarget(ctx context.Context, targets []*Target, netInfo *Ne
 		Errors:      make(map[string]int),
 		CmdChan:     make(chan ControlSignal, 10),
 	}
+	log.Debug().Msgf("adding %v", rec)
+	netInfo.Mu.RUnlock()
 	rec.Since = time.Now()
 	rec.TotalLatency += upCheckInfo.Latency
+	log.Info().Msgf("adding %v - targets is %d big", rec, len(targets))
 	targets = append(targets, rec)
-	log.Debug().Msgf("added %v", rec)
+	log.Info().Msgf("added %v - targets is %d big", rec, len(targets))
 	return targets, rec
-}
-
-// AddTarget adds a target to the list of targets
-func AddTarget(targets []*Target, name string, host string, port int) []*Target {
-	// Add the validated host:port to the results array
-	rec := &Target{
-		Name:     name,
-		Host:     host,
-		IP:       net.ParseIP(host),
-		Port:     port,
-		Attempts: 0,
-		Failures: 0,
-		IsAlive:  true,
-		Since:    time.Time{},
-		Errors:   make(map[string]int),
-		CmdChan:  make(chan ControlSignal, 10),
-	}
-	rec.Since = time.Now()
-	targets = append(targets, rec)
-	log.Debug().Msgf("added %v", rec)
-	return targets
 }
 
 func LoadTargets(ctx context.Context, filename string) []*Target {
@@ -267,19 +257,19 @@ func LoadTargets(ctx context.Context, filename string) []*Target {
 
 func FindTarget(targets []*Target, host string, port int) *Target {
 	for _, target := range targets {
-		target.mu.RLock()
+		target.Mu.RLock()
 		if target.Host == host && target.Port == port {
-			target.mu.RUnlock()
+			target.Mu.RUnlock()
 			return target
 		}
-		target.mu.RUnlock()
+		target.Mu.RUnlock()
 	}
 	return nil
 }
 
 func updateTargetStats(target *Target, upCheckInfo CheckInfo) {
-	target.mu.Lock()
-	defer target.mu.Unlock()
+	target.Mu.Lock()
+	defer target.Mu.Unlock()
 	target.Attempts++
 	if upCheckInfo.Err != nil {
 		target.CurrentError = upCheckInfo.Err.Error()
@@ -304,10 +294,10 @@ func updateTargetStats(target *Target, upCheckInfo CheckInfo) {
 	}
 }
 
-func (t *Target) copyTarget(original *Target) Target {
+func (t *Target) copyTarget(original *Target) *Target {
 	// Create a new instance of Target and copy the values from the original
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+	t.Mu.RLock()
+	defer t.Mu.RUnlock()
 	newTarget := Target{
 		Name:         t.Name,
 		Host:         t.Host,
@@ -325,12 +315,12 @@ func (t *Target) copyTarget(original *Target) Target {
 	for key, value := range original.Errors {
 		newTarget.Errors[key] = value
 	}
-	return newTarget
+	return &newTarget
 }
 
 func (t *Target) String() string {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
+	t.Mu.RLock()
+	defer t.Mu.RUnlock()
 	// dt := t.Since.Format("15:04:05")
 	var alive string
 	if !t.IsAlive {
@@ -377,8 +367,8 @@ func ResetAllStats(targets []*Target) {
 }
 
 func resetStats(target *Target) {
-	target.mu.Lock()
-	defer target.mu.Unlock()
+	target.Mu.Lock()
+	defer target.Mu.Unlock()
 	target.Since = time.Now()
 	target.Attempts = 0
 	target.Failures = 0
@@ -403,9 +393,9 @@ func ClassifyTargets(targets []*Target, netInfo *NetworkInfo) (subnetTargets, ga
 	log.Debug().Msgf("Classifying targets for\n%s", netInfo)
 	for _, target := range targets {
 		log.Debug().Msgf("locking %v", target)
-		target.mu.RLock()
+		target.Mu.RLock()
 		ip := target.IP
-		target.mu.RUnlock()
+		target.Mu.RUnlock()
 		log.Debug().Msgf("unlocked %v", target)
 		mask := netInfo.Mask
 		addr := netInfo.Address

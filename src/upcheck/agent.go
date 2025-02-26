@@ -32,7 +32,7 @@ func PeriodicallyCheckHost(host string, port int, intervalSecs int, ctx context.
 	for {
 		select {
 		case <-ctx.Done():
-			log.Info().Msg("Context cancelled - returning")
+			log.Info().Msgf("%s:%d - context cancelled - returning", host, port)
 			return
 		case command := <-cmd:
 			if command == PAUSE {
