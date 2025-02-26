@@ -294,27 +294,32 @@ func updateTargetStats(target *Target, upCheckInfo CheckInfo) {
 	}
 }
 
-func (t *Target) copyTarget(original *Target) *Target {
-	// Create a new instance of Target and copy the values from the original
+func (t *Target) Copy() *Target {
 	t.Mu.RLock()
 	defer t.Mu.RUnlock()
+
 	newTarget := Target{
+		Mu:           sync.RWMutex{},
 		Name:         t.Name,
 		Host:         t.Host,
 		Port:         t.Port,
-		Attempts:     t.Attempts,
-		Failures:     t.Failures,
+		IP:           make(net.IP, len(t.IP)),
 		IsAlive:      t.IsAlive,
 		Since:        t.Since,
-		Errors:       make(map[string]int),
+		CurrentError: t.CurrentError,
 		LastLatency:  t.LastLatency,
 		TotalLatency: t.TotalLatency,
+		Attempts:     t.Attempts,
+		Failures:     t.Failures,
+		Errors:       make(map[string]int),
+		CmdChan:      make(chan ControlSignal, 10),
 	}
 
-	// Copy the map values
-	for key, value := range original.Errors {
-		newTarget.Errors[key] = value
+	copy(newTarget.IP, t.IP)
+	for k, v := range t.Errors {
+		newTarget.Errors[k] = v
 	}
+
 	return &newTarget
 }
 

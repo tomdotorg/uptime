@@ -69,6 +69,7 @@ func main() {
 		keepGoing = handleKeys(&runInfo)
 	}
 	log.Info().Msg("keepGoing is false. calling cancel()")
+	close(checkChan)
 	cancel()
 }
 

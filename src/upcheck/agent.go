@@ -50,7 +50,7 @@ func PeriodicallyCheckHost(host string, port int, intervalSecs int, ctx context.
 				checkInfo, err := isHostListening(checkCtx, host, port)
 				if err != nil && err.Error() != lastErr {
 					lastErr = err.Error()
-					log.Warn().Msgf("Error checking host %s:%d: %v", host, port, err)
+					log.Debug().Msgf("Error checking host %s:%d: %v", host, port, err)
 				}
 				log.Debug().Msgf("Sending %v", checkInfo)
 				checks <- checkInfo
