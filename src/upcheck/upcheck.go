@@ -334,11 +334,7 @@ func (t *Target) String() string {
 	errorStr := t.CurrentError
 	if errorStr == "" { // no current error, so count the errors
 		log.Debug().Msgf("no current error, so count the errors")
-		errorCount := 0
-		for k, v := range t.Errors {
-			log.Debug().Msgf("error: %s count: %d", k, v)
-			errorCount += t.Errors[k]
-		}
+		errorCount := len(t.Errors)
 		errorStr = strconv.Itoa(errorCount)
 	}
 	var avgLatency string
