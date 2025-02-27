@@ -69,7 +69,7 @@ func main() {
 		keepGoing = handleKeys(&runInfo)
 	}
 	log.Info().Msg("keepGoing is false. calling cancel()")
-	close(checkChan)
+	// close(checkChan) - do this after a WaitGroup has been implemented
 	cancel()
 }
 
@@ -82,6 +82,7 @@ func checkAllTargets(ctx context.Context, targets []*upcheck.Target, interval in
 func watchForNetworkChanges(ctx context.Context, runInfo *RunInfo, checkChan chan<- upcheck.CheckInfo) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
+	networkIsUp := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -90,11 +91,15 @@ func watchForNetworkChanges(ctx context.Context, runInfo *RunInfo, checkChan cha
 		case <-ticker.C:
 			newNetInfo, err := upcheck.GetNetworkInfo()
 			if err != nil { // network is down
-				log.Warn().Msg("Error getting network info - must be down")
+				if networkIsUp {
+					log.Warn().Msg("Error getting network info - must be down")
+					networkIsUp = false
+				}
 				runInfo.mu.Lock()
 				runInfo.networkInfo = nil
 				runInfo.mu.Unlock()
 			} else { // network is valid
+				networkIsUp = true
 				// if it has changed, make sure we have the default gw in the target list
 				if !newNetInfo.Equals(runInfo.networkInfo) {
 					runInfo.mu.Lock()
@@ -161,8 +166,8 @@ func showTargets(runInfo *RunInfo) {
 	} else {
 		fmt.Printf("\nNetwork Config:\n%v\n\n", runInfo.networkInfo)
 	}
-	subnetTargets, gatewayTargets, externalTargets, ok := upcheck.ClassifyTargets(runInfo.checkTargets, &upcheck.NetworkInfo{Address: runInfo.networkInfo.Address, Mask: runInfo.networkInfo.Mask, GW: runInfo.networkInfo.GW})
-	if ok {
+	if runInfo.networkInfo != nil {
+		subnetTargets, gatewayTargets, externalTargets := upcheck.ClassifyTargets(runInfo.checkTargets, &upcheck.NetworkInfo{Address: runInfo.networkInfo.Address, Mask: runInfo.networkInfo.Mask, GW: runInfo.networkInfo.GW})
 		fmt.Println("")
 		ShowStatuses("Subnet Targets", subnetTargets)
 		fmt.Println("")

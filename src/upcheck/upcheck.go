@@ -104,8 +104,6 @@ func isHostListening(ctx context.Context, host string, port int) (checkInfo Chec
 			}
 		}(conn)
 	}
-	// TODO: after a host has a problem, hitting s locks up on the host with the error
-
 	if err != nil {
 		// for now, ignore memory errors TODO: handle this better
 		if isMemoryError(err) {
@@ -187,9 +185,9 @@ func AddDefaultGatewayTarget(ctx context.Context, targets []*Target, netInfo *Ne
 	netInfo.Mu.RUnlock()
 	rec.Since = time.Now()
 	rec.TotalLatency += upCheckInfo.Latency
-	log.Info().Msgf("adding %v - targets is %d big", rec, len(targets))
+	log.Debug().Msgf("adding %v - targets is %d big", rec, len(targets))
 	targets = append(targets, rec)
-	log.Info().Msgf("added %v - targets is %d big", rec, len(targets))
+	log.Debug().Msgf("added %v - targets is %d big", rec, len(targets))
 	return targets, rec
 }
 
@@ -380,10 +378,9 @@ func resetStats(target *Target) {
 }
 
 // ClassifyTargets classify the targets as on this subnet, gateway, or external to this subnet
-func ClassifyTargets(targets []*Target, netInfo *NetworkInfo) (subnetTargets, gatewayTargets, externalTargets []*Target, ok bool) {
+func ClassifyTargets(targets []*Target, netInfo *NetworkInfo) (subnetTargets, gatewayTargets, externalTargets []*Target) {
 	if netInfo == nil {
 		log.Warn().Msg("can't classify targets with no network")
-		ok = false
 		return
 	}
 
@@ -408,6 +405,5 @@ func ClassifyTargets(targets []*Target, netInfo *NetworkInfo) (subnetTargets, ga
 			externalTargets = append(externalTargets, target)
 		}
 	}
-	ok = true
 	return
 }
