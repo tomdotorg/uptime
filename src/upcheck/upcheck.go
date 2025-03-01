@@ -3,6 +3,7 @@ package upcheck
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -149,12 +150,17 @@ func FindDefaultGateway(targets []*Target, defaultGW *NetworkInfo) *Target {
 
 // PingHost pings a host by running ping and parsing the output and returns the latency or an error
 func PingHost(ctx context.Context, host string) (time.Duration, error) {
+	timeoutCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
 	// Create a command to run the ping
-	cmd := exec.CommandContext(ctx, "ping", "-c", "1", host)
+	cmd := exec.CommandContext(timeoutCtx, "ping", "-c", "1", host)
 
 	// Run the command and capture the output
 	output, err := cmd.Output()
 	if err != nil {
+		if errors.Is(timeoutCtx.Err(), context.DeadlineExceeded) {
+			return 0, fmt.Errorf("ping command timed out")
+		}
 		return 0, err
 	}
 
@@ -178,7 +184,6 @@ func PingHost(ctx context.Context, host string) (time.Duration, error) {
 			}
 		}
 	}
-
 	return 0, fmt.Errorf("could not find latency in ping output")
 }
 
