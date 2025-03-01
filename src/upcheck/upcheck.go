@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -63,18 +64,23 @@ func parseHostPortType(line string) (string, net.IP, int, error) {
 	var port int
 	var err error
 	parts := strings.Split(line, ":")
-	host := net.ParseIP(parts[0])
-	// If a port is provided, parse it
-	if len(parts) > 1 {
-		port, err = strconv.Atoi(parts[1])
-		if err != nil || port <= 0 || port > 65535 {
-			log.Warn().Msgf("invalid port: %s", parts[1])
-			port = -1
-		}
+	// this happens when sep is not empty and is not found in the string
+	if len(parts) == 1 {
+		port = -1
 	} else {
-		port = defaultPort
+		// If a port is provided, parse it
+		if len(parts) > 1 {
+			port, err = strconv.Atoi(parts[1])
+			if err != nil || port <= 0 || port > 65535 {
+				log.Warn().Msgf("invalid port: %s", parts[1])
+				port = -1
+			}
+		} else {
+			port = defaultPort
+		}
 	}
 	// see if host is an IP address or a hostname
+	host := net.ParseIP(parts[0])
 	if host == nil {
 		// not an IP address, so it must be a hostname so resolve the hostname to an IP address
 		ips, err := net.LookupIP(parts[0])
@@ -89,29 +95,39 @@ func parseHostPortType(line string) (string, net.IP, int, error) {
 
 // isHostListening checks if a host is listening on a given port.
 func isHostListening(ctx context.Context, host string, port int) (checkInfo CheckInfo, err error) {
-	hostPort := net.JoinHostPort(host, strconv.Itoa(port))
 	checkInfo.Host = host
 	checkInfo.Port = port
-	start := time.Now()
-	var dialer = &net.Dialer{}
-	conn, err := dialer.DialContext(ctx, "tcp", hostPort)
-	checkInfo.Latency = time.Now().Sub(start)
-	if conn != nil {
-		defer func(conn net.Conn) {
-			connErr := conn.Close()
-			if connErr != nil {
-				log.Error().Err(err).Msgf("error closing connection: %s", err)
-			}
-		}(conn)
-	}
-	if err != nil {
-		// for now, ignore memory errors TODO: handle this better
-		if isMemoryError(err) {
-			log.Debug().Msgf("memory error connecting to %s : %s", host, err)
-			printMemUsage()
-			return CheckInfo{true, host, port, checkInfo.Latency, nil}, nil
+	if port == -1 { // no port specified
+		latency, err := PingHost(ctx, host)
+		if err != nil {
+			return CheckInfo{false, host, port, latency, err}, err
+		} else {
+			return CheckInfo{true, host, port, latency, nil}, nil
 		}
-		return CheckInfo{false, host, port, checkInfo.Latency, err}, err
+	} else {
+		var dialer = &net.Dialer{}
+		hostPort := net.JoinHostPort(host, strconv.Itoa(port))
+		start := time.Now()
+		conn, err := dialer.DialContext(ctx, "tcp", hostPort)
+		end := time.Now()
+		checkInfo.Latency = end.Sub(start)
+		if conn != nil {
+			defer func(conn net.Conn) {
+				connErr := conn.Close()
+				if connErr != nil {
+					log.Error().Err(err).Msgf("error closing connection: %s", err)
+				}
+			}(conn)
+		}
+		if err != nil {
+			// for now, ignore memory errors TODO: handle this better
+			if isMemoryError(err) {
+				log.Debug().Msgf("memory error connecting to %s : %s", host, err)
+				printMemUsage()
+				return CheckInfo{true, host, port, checkInfo.Latency, nil}, nil
+			}
+			return CheckInfo{false, host, port, checkInfo.Latency, err}, err
+		}
 	}
 	// if we get here, the connection was successful
 	return CheckInfo{true, host, port, checkInfo.Latency, nil}, nil
@@ -131,7 +147,42 @@ func FindDefaultGateway(targets []*Target, defaultGW *NetworkInfo) *Target {
 	return nil
 }
 
-// todo make this thread safe
+// PingHost pings a host by running ping and parsing the output and returns the latency or an error
+func PingHost(ctx context.Context, host string) (time.Duration, error) {
+	// Create a command to run the ping
+	cmd := exec.CommandContext(ctx, "ping", "-c", "1", host)
+
+	// Run the command and capture the output
+	output, err := cmd.Output()
+	if err != nil {
+		return 0, err
+	}
+
+	// Parse the output to find the latency
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		if strings.Contains(line, "time=") {
+			// Extract the time value
+			parts := strings.Split(line, " ")
+			for _, part := range parts {
+				if strings.HasPrefix(part, "time=") {
+					// Convert the time value to a duration
+					timeStr := strings.TrimPrefix(part, "time=")
+					timeStr = strings.TrimSuffix(timeStr, " ms")
+					latency, err := time.ParseDuration(timeStr + "ms")
+					if err != nil {
+						return 0, err
+					}
+					return latency, nil
+				}
+			}
+		}
+	}
+
+	return 0, fmt.Errorf("could not find latency in ping output")
+}
+
+// todo make sure this is thread safe
 
 // AddDefaultGatewayTarget adds the default gateway to the list of targets
 func AddDefaultGatewayTarget(ctx context.Context, targets []*Target, netInfo *NetworkInfo) ([]*Target, *Target) {
@@ -198,7 +249,7 @@ func LoadTargets(ctx context.Context, filename string) []*Target {
 	file, err := os.Open(filename)
 	if err != nil {
 		log.Warn().Err(err).Msgf("error opening %s", filename)
-		log.Info().Msg("using defaults")
+		log.Info().Msg("using default targets")
 		results = defaultTargets
 	} else {
 		defer func(file *os.File) {

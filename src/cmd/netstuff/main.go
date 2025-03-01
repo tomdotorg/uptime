@@ -1,27 +1,21 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
-	"net"
 	"time"
 
-	"github.com/go-ping/ping"
-	"github.com/jackpal/gateway"
+	"upcheck"
 )
 
 func main() {
 	// Get default gateway
-	ifs, err := gateway.DiscoverInterface()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(1*time.Second))
+	duration, err := upcheck.PingHost(ctx, "google.com")
 	if err != nil {
-		log.Fatalf("Error getting interfaces: %v", err)
+		log.Fatalf("Error calling ping: %v", err)
 	}
-	fmt.Printf("interface: %v %s\n", ifs, net.IP(ifs.DefaultMask()).String())
-	gw, err := gateway.DiscoverGateway()
-	if err != nil {
-		log.Fatalf("Error getting gateway: %v", err)
-	}
-	fmt.Printf("Default Gateway: %v\n", gw)
-
-	PingHost(gw, 2)
+	fmt.Printf("latency: %v", duration)
+	cancel()
 }

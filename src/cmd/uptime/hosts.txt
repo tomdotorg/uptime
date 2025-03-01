@@ -2,13 +2,11 @@
 1.1.1.1:53
 8.8.8.8:53
 8.8.4.4:53
-yahoo.com
 www.tom.org
-google.com:80
 msg.tom.org:1883
 msg.tom.org:9001
-do.tom.org:80
+do.tom.org
 192.168.6.249:3689
 #192.168.6.121:2222
-hanalei:9000
-kalalau:9000
+hanalei
+kalalau
