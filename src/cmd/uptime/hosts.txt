@@ -9,4 +9,4 @@ do.tom.org
 192.168.6.249:3689
 #192.168.6.121:2222
 hanalei
-kalalau
+kalalau:9000
